@@ -152,12 +152,20 @@ public:
     /// Data if > 0 : dimension of each cell in the created grid
     Data< SReal > d_cellWidth;
 
+    /// Per-axis geometric grading ratio [rx, ry, rz].
+    /// r > 1: points dense at start; r < 1: points dense at end; r = 1: uniform (default).
+    Data< type::Vec3 > d_gradingRatio;
+
 protected:
     /// Distance between points in the grid. Must be perpendicular to each other
     type::Vec3 dx,dy,dz;
 
     /// Inverse value of dx, dy and dz
     SReal inv_dx2, inv_dy2, inv_dz2;
+
+    /// Compute fractional cell indices (x, y, z) for a point p relative to the grid origin.
+    /// Applies graded inversion when d_gradingRatio != [1,1,1], uniform formula otherwise.
+    void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;
 };
 
 } //namespace sofa::component::topology::container::grid

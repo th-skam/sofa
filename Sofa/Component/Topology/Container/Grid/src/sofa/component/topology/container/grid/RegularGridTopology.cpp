@@ -30,6 +30,34 @@ using namespace sofa::type;
 using namespace sofa::defaulttype;
 using type::vector;
 
+namespace
+{
+
+/// World-space position of grid point i out of n spanning total length L with geometric grading ratio r.
+/// Cell sizes form a geometric series: first cell = s, next = s*r, etc.
+/// r > 1: smallest cells at the start; r < 1: smallest cells at the end; r = 1: uniform.
+static SReal gradedCoord(int i, int n, SReal L, SReal r)
+{
+    if (n <= 1)
+        return 0;
+    if (std::abs(r - 1) < 1e-10)
+        return L * i / (n - 1);
+    return L * (std::pow(r, i) - 1) / (std::pow(r, n - 1) - 1);
+}
+
+/// Inverse of gradedCoord: fractional cell index for a point at distance x from the axis origin.
+static SReal gradedIndex(SReal x, int n, SReal L, SReal r)
+{
+    if (n <= 1 || L <= 0)
+        return 0;
+    if (std::abs(r - 1) < 1e-10)
+        return x * (n - 1) / L;
+    const SReal rn1 = std::pow(r, n - 1);
+    return std::log1p(x * (rn1 - 1) / L) / std::log(r);
+}
+
+} // anonymous namespace
+
 /// To avoid duplicating the code in the different variants of the constructor
 /// this object is using the delegating constructor feature of c++ x11.
 /// The following constructor is "chained" by the other constructors to
@@ -40,6 +68,7 @@ RegularGridTopology::RegularGridTopology(const type::Vec3i& dimXYZ)
     , d_max(initData(&d_max,type::Vec3(1_sreal, 1_sreal, 1_sreal),"max", "Max end of the diagonal"))
     , d_p0(initData(&d_p0,type::Vec3(0_sreal, 0_sreal, 0_sreal),"p0", "Offset all the grid points"))
     , d_cellWidth(initData(&d_cellWidth, 0_sreal, "cellWidth","if > 0 : dimension of each cell in the created grid. Otherwise, the cell size is computed based on min, max, and resolution n."))
+    , d_gradingRatio(initData(&d_gradingRatio, type::Vec3(1_sreal, 1_sreal, 1_sreal), "gradingRatio", "Per-axis geometric grading ratio [rx, ry, rz]. r > 1: points dense at start; r < 1: points dense at end; r = 1: uniform."))
 {
 }
 
@@ -164,69 +193,88 @@ void RegularGridTopology::setPos(SReal xmin, SReal xmax, SReal ymin, SReal ymax,
 
 sofa::type::Vec3 RegularGridTopology::getPointInGrid(int i, int j, int k) const
 {
-    return d_p0.getValue()+dx*i+dy*j+dz*k;
+    const auto& r = d_gradingRatio.getValue();
+    const auto& n = d_n.getValue();
+    // dx, dy, dz are the uniform step vectors; their component magnitude * (n-1) gives the full axis length.
+    // For each axis, scale the step direction by the graded fraction instead of the uniform integer index.
+    const SReal fx = n[0] > 1 ? gradedCoord(i, n[0], dx[0] * (n[0] - 1), r[0]) / dx[0] : 0;
+    const SReal fy = n[1] > 1 ? gradedCoord(j, n[1], dy[1] * (n[1] - 1), r[1]) / dy[1] : 0;
+    const SReal fz = n[2] > 1 ? gradedCoord(k, n[2], dz[2] * (n[2] - 1), r[2]) / dz[2] : 0;
+    return d_p0.getValue() + dx * fx + dy * fy + dz * fz;
 }
 
 RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& position) const
 {
     const type::Vec3 p0 = d_p0.getValue();
-    const type::Vec3i   n  = d_n.getValue();
-    const type::Vec3 d (dx[0], dy[1], dz[2]);
+    const type::Vec3i n = d_n.getValue();
+    const type::Vec3& r = d_gradingRatio.getValue();
+    const type::Vec3 p = position - p0;
 
-    // Get the position relative to the corner of the grid
-    const type::Vec3 p = position-p0;
+    const int ix = int(std::round(gradedIndex(p[0], n[0], dx[0] * (n[0] - 1), r[0])));
+    const int iy = int(std::round(gradedIndex(p[1], n[1], dy[1] * (n[1] - 1), r[1])));
+    const int iz = int(std::round(gradedIndex(p[2], n[2], dz[2] * (n[2] - 1), r[2])));
 
-    // Get the index of the closest node by rounding the number of cells in the x, y and z direction
-    // from the corner of the grid to the queried point
-    const int ix = int(round(p[0]/d[0]));
-    const int iy = int(round(p[1]/d[1]));
-    const int iz = int(round(p[2]/d[2]));
-
-    // Make sure the node lies inside the boundaries of the grid
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
-
-    if (ix > (n[0] - 1) || iy > (n[1] - 1) || iz > (n[2] - 1))
+    if (ix > n[0] - 1 || iy > n[1] - 1 || iz > n[2] - 1)
         return InvalidID;
 
-    // Return the node index
     return getIndex(ix, iy, iz);
 }
 
 RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& position, const SReal epsilon) const
 {
     const type::Vec3 p0 = d_p0.getValue();
-    const type::Vec3i   n  = d_n.getValue();
-    const type::Vec3 d (dx[0], dy[1], dz[2]);
+    const type::Vec3i n = d_n.getValue();
+    const type::Vec3& r = d_gradingRatio.getValue();
+    const type::Vec3 p = position - p0;
 
-    // Get the position relative to the corner of the grid
-    const type::Vec3 p = position-p0;
+    const int ix = int(std::round(gradedIndex(p[0], n[0], dx[0] * (n[0] - 1), r[0])));
+    const int iy = int(std::round(gradedIndex(p[1], n[1], dy[1] * (n[1] - 1), r[1])));
+    const int iz = int(std::round(gradedIndex(p[2], n[2], dz[2] * (n[2] - 1), r[2])));
 
-    // Get the index of the closest node by rounding the number of cells in the x, y and z direction
-    // from the corner of the grid to the queried point
-    const int ix = int(round(p[0]/d[0]));
-    const int iy = int(round(p[1]/d[1]));
-    const int iz = int(round(p[2]/d[2]));
-
-    // Make sure the node lies inside the boundaries of the grid
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
-
-    if (ix > n[0] || iy > n[1]|| iz > n[2])
+    if (ix > n[0] || iy > n[1] || iz > n[2])
         return InvalidID;
 
-    // Get the node index
     const auto node_index = getIndex(ix, iy, iz);
 
-    // Make sure the node lies inside a sphere of radius (d * epsilon) centered on the queried position
-    const auto node_position = type::Vec3(ix*d[0], iy*d[1], iz*d[2]);
-    const auto m = epsilon*d[0]; // allowed margin
-    const auto e = p-node_position; // vector between the node and the queried position
+    // Check that the queried position lies within epsilon * (first-cell size) of the found node.
+    const auto node_position = type::Vec3(
+        gradedCoord(ix, n[0], dx[0] * (n[0] - 1), r[0]),
+        gradedCoord(iy, n[1], dy[1] * (n[1] - 1), r[1]),
+        gradedCoord(iz, n[2], dz[2] * (n[2] - 1), r[2]));
+    const auto m = epsilon * dx[0];
+    const auto e = p - node_position;
 
-    if (e[0]*e[0] + e[1]*e[1]+ e[2]*e[2] > m*m)
+    if (e[0]*e[0] + e[1]*e[1] + e[2]*e[2] > m*m)
         return InvalidID;
 
     return node_index;
+}
+
+/// Compute the fractional cell index along each axis for a point p relative to the grid origin.
+/// Uses the uniform formula when gradingRatio == [1,1,1] to avoid any overhead.
+void RegularGridTopology::computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const
+{
+    const auto& r = d_gradingRatio.getValue();
+    if (std::abs(r[0]-1) < 1e-10 && std::abs(r[1]-1) < 1e-10 && std::abs(r[2]-1) < 1e-10)
+    {
+        x = p*dx*inv_dx2;
+        y = p*dy*inv_dy2;
+        z = p*dz*inv_dz2;
+    }
+    else
+    {
+        const auto& n = d_n.getValue();
+        const SReal dx_len = std::sqrt(dx*dx);
+        const SReal dy_len = std::sqrt(dy*dy);
+        const SReal dz_len = std::sqrt(dz*dz);
+        x = gradedIndex(p*dx/dx_len, n[0], dx_len*(n[0]-1), r[0]);
+        y = gradedIndex(p*dy/dy_len, n[1], dy_len*(n[1]-1), r[1]);
+        z = gradedIndex(p*dz/dz_len, n[2], dz_len*(n[2]-1), r[2]);
+    }
 }
 
 /// return the cube containing the given point (or -1 if not found).
@@ -236,9 +284,8 @@ RegularGridTopology::Index RegularGridTopology::findCube(const type::Vec3& pos)
     if (n[0]<2 || n[1]<2 || n[2]<2)
         return InvalidID;
     const type::Vec3 p = pos-d_p0.getValue();
-    const SReal x = p*dx*inv_dx2;
-    const SReal y = p*dy*inv_dy2;
-    const SReal z = p*dz*inv_dz2;
+    SReal x, y, z;
+    computeCellIndex(p, x, y, z);
     const int ix = int(std::floor(x));
     const int iy = int(std::floor(y));
     const int iz = int(std::floor(z));
@@ -260,9 +307,8 @@ RegularGridTopology::Index RegularGridTopology::findNearestCube(const type::Vec3
     const auto n = d_n.getValue();
     if (n[0]<2 || n[1]<2 || n[2]<2) return InvalidID;
     const type::Vec3 p = pos-d_p0.getValue();
-    const SReal x = p*dx*inv_dx2;
-    const SReal y = p*dy*inv_dy2;
-    const SReal z = p*dz*inv_dz2;
+    SReal x, y, z;
+    computeCellIndex(p, x, y, z);
     int ix = int(std::floor(x));
     int iy = int(std::floor(y));
     int iz = int(std::floor(z));
@@ -279,11 +325,8 @@ RegularGridTopology::Index RegularGridTopology::findCube(const type::Vec3& pos, 
     const auto n = d_n.getValue();
     if (n[0]<2 || n[1]<2 || n[2]<2) return InvalidID;
     const type::Vec3 p = pos-d_p0.getValue();
-
-    const SReal x = p*dx*inv_dx2;
-    const SReal y = p*dy*inv_dy2;
-    const SReal z = p*dz*inv_dz2;
-
+    SReal x, y, z;
+    computeCellIndex(p, x, y, z);
     const int ix = int(std::floor(x));
     const int iy = int(std::floor(y));
     const int iz = int(std::floor(z));
@@ -308,9 +351,8 @@ RegularGridTopology::Index RegularGridTopology::findNearestCube(const type::Vec3
     const auto n = d_n.getValue();
     if (n[0]<2 || n[1]<2 || n[2]<2) return InvalidID;
     const type::Vec3 p = pos-d_p0.getValue();
-    const SReal x = p*dx*inv_dx2;
-    const SReal y = p*dy*inv_dy2;
-    const SReal z = p*dz*inv_dz2;
+    SReal x, y, z;
+    computeCellIndex(p, x, y, z);
     int ix = int(std::floor(x));
     int iy = int(std::floor(y));
     int iz = int(std::floor(z));
