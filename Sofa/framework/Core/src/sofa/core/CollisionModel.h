@@ -24,6 +24,7 @@
 #include <sofa/core/objectmodel/BaseComponent.h>
 #include <sofa/core/CollisionElement.h>
 #include <sofa/helper/set.h>
+#include <atomic>
 
 #include <sofa/core/objectmodel/lifecycle/RenamedData.h>
 
@@ -215,6 +216,11 @@ public:
 
     /// Create or update the bounding volume hierarchy.
     virtual void computeBoundingTree(int maxDepth=0) = 0;
+
+    /// Reset the per-step build state that guards computeBoundingTree() against concurrent
+    /// calls from multiple SubCollisionPipelines sharing this model.
+    /// Must be called once per step from the sequential reset phase.
+    void resetBvhBuiltFlag() { m_bvhBuildState.store(0, std::memory_order_relaxed); }
 
     /// \brief Create or update the bounding volume hierarchy, accounting for motions
     /// within the given timestep.
@@ -431,6 +437,14 @@ protected:
     /// No collision can occur between collision
     /// models included in a common group (i.e. sharing a common id)
     Data< std::set<int> > group;
+
+    /// Guards computeBoundingTree() against concurrent calls when this model is shared
+    /// across multiple SubCollisionPipelines running with parallelDetection=true.
+    /// States: 0=IDLE, 1=BUILDING (winner thread working), 2=DONE (BVH fully built).
+    /// The losing thread spins on BUILDING until DONE, then returns — ensuring it
+    /// never calls getFirst() before createPrevious<CubeCollisionModel>() completes.
+    /// Reset to IDLE each step via resetBvhBuiltFlag() from computeCollisionReset().
+    std::atomic<int> m_bvhBuildState { 0 };
 
     /// Number of collision elements
     Size size;

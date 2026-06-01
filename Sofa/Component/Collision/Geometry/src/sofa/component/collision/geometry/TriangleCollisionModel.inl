@@ -216,6 +216,13 @@ bool TriangleCollisionModel<DataTypes>::canCollideWithElement(sofa::Index index,
 template<class DataTypes>
 void TriangleCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
 {
+    int expected = 0;
+    if (!m_bvhBuildState.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+        while (m_bvhBuildState.load(std::memory_order_acquire) != 2)
+            ;
+        return;
+    }
+
     CubeCollisionModel* cubeModel = createPrevious<CubeCollisionModel>();
 
     // check first that topology didn't changed
@@ -225,8 +232,11 @@ void TriangleCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
     if (m_needsUpdate && !cubeModel->empty())
         cubeModel->resize(0);
 
-    if (!isMoving() && !cubeModel->empty() && !m_needsUpdate)
-        return; // No need to recompute BBox if immobile nor if mesh didn't change.
+    if (!isMoving() && !cubeModel->empty() && !m_needsUpdate) // No need to recompute BBox if immobile nor if mesh didn't change.
+    {
+        m_bvhBuildState.store(2, std::memory_order_release);
+        return;
+    }
 
     // set to false to avoid excessive loop
     m_needsUpdate=false;
@@ -273,6 +283,7 @@ void TriangleCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
         }
         cubeModel->computeBoundingTree(maxDepth);
     }
+    m_bvhBuildState.store(2, std::memory_order_release);
 }
 
 template<class DataTypes>

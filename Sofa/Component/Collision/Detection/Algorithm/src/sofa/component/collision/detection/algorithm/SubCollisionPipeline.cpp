@@ -163,6 +163,11 @@ void SubCollisionPipeline::computeCollisionReset()
             contact->removeResponse();
         }
     }
+
+    // Reset the per-step BVH flag on every linked model. This runs in the sequential
+    // reset phase, so it is safe to call even when models are shared across pipelines.
+    for (auto* cm : l_collisionModels)
+        cm->resetBvhBuiltFlag();
 }
 
 /**

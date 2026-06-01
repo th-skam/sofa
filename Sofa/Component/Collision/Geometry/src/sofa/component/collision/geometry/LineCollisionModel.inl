@@ -460,10 +460,21 @@ bool LineCollisionModel<DataTypes>::canCollideWithElement(sofa::Index index, Col
 template<class DataTypes>
 void LineCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
 {
+    int expected = 0;
+    if (!m_bvhBuildState.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+        while (m_bvhBuildState.load(std::memory_order_acquire) != 2)
+            ;
+        return;
+    }
+
     CubeCollisionModel* cubeModel = createPrevious<CubeCollisionModel>();
     updateFromTopology();
     if (needsUpdate) cubeModel->resize(0);
-    if (!isMoving() && !cubeModel->empty() && !needsUpdate) return; // No need to recompute BBox if immobile
+    if (!isMoving() && !cubeModel->empty() && !needsUpdate) // No need to recompute BBox if immobile
+    {
+        m_bvhBuildState.store(2, std::memory_order_release);
+        return;
+    }
 
     needsUpdate = false;
 
@@ -492,6 +503,7 @@ void LineCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
         }
         cubeModel->computeBoundingTree(maxDepth);
     }
+    m_bvhBuildState.store(2, std::memory_order_release);
 }
 
 template<class DataTypes>

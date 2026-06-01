@@ -114,6 +114,15 @@ bool PointCollisionModel<DataTypes>::canCollideWithElement(sofa::Index index, Co
 template<class DataTypes>
 void PointCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
 {
+    int expected = 0;
+    if (!m_bvhBuildState.compare_exchange_strong(expected, 1, std::memory_order_acq_rel)) {
+        // Another thread claimed the build. Spin until it signals DONE (2) so that
+        // createPrevious<CubeCollisionModel>() has completed before we call getFirst().
+        while (m_bvhBuildState.load(std::memory_order_acquire) != 2)
+            ;
+        return;
+    }
+
     CubeCollisionModel* cubeModel = createPrevious<CubeCollisionModel>();
     const auto npoints = mstate->getSize();
     bool updated = false;
@@ -123,7 +132,11 @@ void PointCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
         updated = true;
     }
     if (updated) cubeModel->resize(0);
-    if (!isMoving() && !cubeModel->empty() && !updated) return; // No need to recompute BBox if immobile
+    if (!isMoving() && !cubeModel->empty() && !updated) // No need to recompute BBox if immobile
+    {
+        m_bvhBuildState.store(2, std::memory_order_release);
+        return;
+    }
 
     if (d_computeNormals.getValue()) updateNormals();
 
@@ -140,6 +153,7 @@ void PointCollisionModel<DataTypes>::computeBoundingTree(int maxDepth)
         }
         cubeModel->computeBoundingTree(maxDepth);
     }
+    m_bvhBuildState.store(2, std::memory_order_release);
 }
 
 template<class DataTypes>
