@@ -77,4 +77,4 @@ def createScene(root):
 
     # Making this parallel causes crashes
     root.addObject("CompositeCollisionPipeline", name="compositePipeline", subCollisionPipelines=sub_pipelines
-                   , parallelDetection=True)
+                   , parallelDetection=False)
