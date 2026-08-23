@@ -1,0 +1,40 @@
+<?xml version="1.0" ?>
+<!-- A system that genuinely needs a non-symmetric solver.
+
+     RigidMapping with geometricStiffness="Exact" contributes dJᵗf/dx, which is not
+     symmetric because rotations do not commute. When the linear system is assembled,
+     the mapping asks the solver whether it can take that (MechanicalParams::
+     supportOnlySymmetricMatrix, set from LinearSolver::supportNonSymmetricSystem)
+     and emits an error if it cannot. Every other iterative solver in SOFA answers
+     no; PBiCGStabLinearSolver answers yes, so this scene runs clean.
+
+     Swap the solver for an assembled CGLinearSolver to see the error, or set
+     geometricStiffness="Stabilized" to symmetrise the contribution instead. -->
+<Node name="root" gravity="0 0 0" dt="0.01">
+    <RequiredPlugin pluginName="Sofa.Component.Constraint.Projective"/> <!-- Needed to use components [PartialFixedProjectiveConstraint] -->
+    <RequiredPlugin pluginName="Sofa.Component.LinearSolver.Iterative"/> <!-- Needed to use components [PBiCGStabLinearSolver] -->
+    <RequiredPlugin pluginName="Sofa.Component.LinearSystem"/> <!-- Needed to use components [MatrixLinearSystem] -->
+    <RequiredPlugin pluginName="Sofa.Component.Mapping.NonLinear"/> <!-- Needed to use components [RigidMapping] -->
+    <RequiredPlugin pluginName="Sofa.Component.Mass"/> <!-- Needed to use components [UniformMass] -->
+    <RequiredPlugin pluginName="Sofa.Component.MechanicalLoad"/> <!-- Needed to use components [ConstantForceField] -->
+    <RequiredPlugin pluginName="Sofa.Component.ODESolver.Backward"/> <!-- Needed to use components [EulerImplicitSolver] -->
+    <RequiredPlugin pluginName="Sofa.Component.StateContainer"/> <!-- Needed to use components [MechanicalObject] -->
+    <RequiredPlugin pluginName="Sofa.Component.Visual"/> <!-- Needed to use components [VisualStyle] -->
+
+    <VisualStyle displayFlags="showBehaviorModels showMapping" />
+    <DefaultAnimationLoop/>
+
+    <Node name="rigidBody">
+        <EulerImplicitSolver name="odesolver" rayleighStiffness="0.1" rayleighMass="0.1" />
+        <PBiCGStabLinearSolver template="CompressedRowSparseMatrixd" name="BiCGStab" iterations="200" tolerance="1e-9"/>
+        <MechanicalObject template="Rigid3" name="DoFs" position="0 0 0  0 0 0 1"/>
+        <UniformMass template="Rigid3" name="mass" totalMass="1.0"/>
+        <PartialFixedProjectiveConstraint fixedDirections="1 1 1 0 0 0"/>
+
+        <Node name="mappedPoints">
+            <MechanicalObject template="Vec3" name="points" position="1 0 0  0 1 0  0 0 1"/>
+            <RigidMapping name="mapping" input="@.." output="@." index="0" geometricStiffness="Exact"/>
+            <ConstantForceField name="load" forces="1 -1 0  0 1 -1  -1 0 1" indices="0 1 2"/>
+        </Node>
+    </Node>
+</Node>

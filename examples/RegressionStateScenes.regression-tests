@@ -56,7 +56,9 @@ Component/LinearSolver/Iterative/FEMBAR_MinResLinearSolver.scn 100 1e-8 0 1
 Component/LinearSolver/Iterative/FEMBAR_ShewchukPCGLinearSolver.scn 100 1e-8 0 1
 Component/LinearSolver/Iterative/FEMBAR_CGLinearSolver.scn 100 1e-8 0 1
 Component/LinearSolver/Iterative/FEMBAR_CGLinearSolver_assembled.scn 100 1e-8 0 1
+Component/LinearSolver/Iterative/FEMBAR_PBiCGStabLinearSolver.scn 100 1e-8 0 1
 Component/LinearSolver/Preconditioner/FEMBAR_PCG_BlockJacobiPreconditioner.scn 100 1e-8 0 1
+Component/LinearSolver/Preconditioner/FEMBAR_PBiCGStab_BlockJacobiPreconditioner.scn 100 1e-8 0 1
 Component/LinearSolver/Preconditioner/FEMBAR_PCG_JacobiPreconditioner.scn 100 1e-8 0 1
 Component/LinearSolver/Preconditioner/FEMBAR_PCG_NoPreconditioner.scn 100 1e-8 0 1
 Component/LinearSolver/Preconditioner/FEMBAR_PCG_PrecomputedWarpPreconditioner.scn 100 1e-8 0 1
