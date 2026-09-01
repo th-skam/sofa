@@ -23,6 +23,7 @@
 
 #include <sofa/component/solidmechanics/fem/elastic/config.h>
 #include <sofa/component/solidmechanics/fem/elastic/ConstantSourceTerm.h>
+#include <sofa/component/solidmechanics/fem/elastic/NonConstantSourceTerm.h>
 #include <sofa/core/behavior/ForceField.h>
 #include <sofa/core/behavior/TopologyAccessor.h>
 #include <sofa/core/objectmodel/Link.h>
@@ -79,6 +80,14 @@ public:
      */
     sofa::MultiLink<FEMSourceTermIntegrator<DataTypes, ElementType>, ConstantSourceTerm<DataTypes>,
         sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_constantSources;
+
+    /**
+     * @brief Displacement-dependent source terms linked to this component.
+     *
+     * If left empty, the NonConstantSourceTerm components found in the current context are used.
+     */
+    sofa::MultiLink<FEMSourceTermIntegrator<DataTypes, ElementType>, NonConstantSourceTerm<DataTypes>,
+        sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_nonConstantSources;
 
     /**
      * @brief Initializes the component.
@@ -141,6 +150,8 @@ protected:
 
     /**
      * @brief Ensures that valid source terms are linked, falling back to the current context.
+     *
+     * Applies to both l_constantSources and l_nonConstantSources.
      */
     void validateSources();
 

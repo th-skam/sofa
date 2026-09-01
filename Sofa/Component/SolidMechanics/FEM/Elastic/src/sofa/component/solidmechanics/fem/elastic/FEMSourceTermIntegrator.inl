@@ -30,6 +30,9 @@ template <class DataTypes, class ElementType>
 FEMSourceTermIntegrator<DataTypes, ElementType>::FEMSourceTermIntegrator()
     : l_constantSources(initLink("constantSources", "Source terms of the weak form integrated by "
                 "this component. If empty, the ones found in the current context are used."))
+    , l_nonConstantSources(initLink("nonConstantSources", "Displacement-dependent source terms "
+                "linked to this component. If empty, the ones found in the current context are "
+                "used."))
     , d_quadratureDegree(initData(&d_quadratureDegree, static_cast<sofa::Size>(1), "quadratureDegree",
                 "Degree of the quadrature rule integrating the element matrix M."))
 {
@@ -77,20 +80,28 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::init()
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::validateSources()
 {
-    // Gather all ConstantSourceTerm components in Context if empty
-    if (l_constantSources.empty())
+    // Gather all matching source components in Context if a link is left empty
+    auto fallbackToContext = [this](auto& link)
     {
-        const auto sourcesInContext = this->getContext()->template getObjects<ConstantSourceTerm<DataTypes> >(
-            sofa::core::objectmodel::BaseContext::Local);
+        using SourceType = typename std::remove_reference_t<decltype(link)>::DestType;
 
-        for (const auto& source : sourcesInContext)
-            l_constantSources.add(source);
+        if (link.empty())
+        {
+            const auto sourcesInContext = this->getContext()->template getObjects<SourceType>(
+                sofa::core::objectmodel::BaseContext::Local);
 
-        msg_info_when(!sourcesInContext.empty(), this) << "No source term linked: the "
-            << sourcesInContext.size() << " one(s) found in the current context are used.";
-    }
+            for (const auto& source : sourcesInContext)
+                link.add(source);
 
-    msg_warning_when(l_constantSources.empty(), this)
+            msg_info_when(!sourcesInContext.empty(), this) << "No source term linked: the "
+                << sourcesInContext.size() << " one(s) found in the current context are used.";
+        }
+    };
+
+    fallbackToContext(l_constantSources);
+    fallbackToContext(l_nonConstantSources);
+
+    msg_warning_when(l_constantSources.empty() && l_nonConstantSources.empty(), this)
         << "No source term linked, and none found in the current context '"
         << this->getContext()->getName() << "'. This component has zero force contribution.";
 }
