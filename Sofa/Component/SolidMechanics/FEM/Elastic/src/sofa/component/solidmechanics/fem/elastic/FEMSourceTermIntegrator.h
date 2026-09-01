@@ -120,14 +120,16 @@ public:
         const sofa::DataVecDeriv_t<DataTypes>& v) override;
 
     /**
-     * @brief No-op: TODO for non-const source terms
+     * @brief Applies the tangent of the displacement-dependent terms to dx.
+     *
+     * A no-op when l_nonConstantSources is empty.
      */
     void addDForce(const sofa::core::MechanicalParams* mparams,
         sofa::DataVecDeriv_t<DataTypes>& df,
         const sofa::DataVecDeriv_t<DataTypes>& dx) override;
 
     /**
-     * @brief No-op: TODO for non-const source terms
+     * @brief No-op: the tangent contribution is applied through addDForce only.
      */
     void buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix) override;
 

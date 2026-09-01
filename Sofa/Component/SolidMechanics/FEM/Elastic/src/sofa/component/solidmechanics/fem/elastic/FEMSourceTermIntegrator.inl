@@ -22,6 +22,7 @@
 #pragma once
 #include <sofa/component/solidmechanics/fem/elastic/FEMSourceTermIntegrator.h>
 #include <sofa/component/solidmechanics/fem/elastic/impl/VectorTools.h>
+#include <sofa/core/MechanicalParams.h>
 
 namespace sofa::component::solidmechanics::fem::elastic
 {
@@ -305,9 +306,41 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
                                                       sofa::DataVecDeriv_t<DataTypes>& df,
                                                       const sofa::DataVecDeriv_t<DataTypes>& dx)
 {
-    SOFA_UNUSED(mparams);
-    SOFA_UNUSED(df);
-    SOFA_UNUSED(dx);
+    if (this->isComponentStateInvalid() || l_nonConstantSources.empty())
+    {
+        return;
+    }
+
+    // never mparams->kFactor() directly, so that Rayleigh stiffness damping is folded in
+    const auto kFactor = static_cast<Real>(sofa::core::mechanicalparams::kFactorIncludingRayleighDamping(
+        mparams, this->rayleighStiffness.getValue()));
+
+    auto forceDerivAccessor = sofa::helper::getWriteAccessor(df);
+    const sofa::helper::ReadAccessor positionDerivAccessor = sofa::helper::getReadAccessor(dx);
+    const auto positionsAccessor = this->mstate->readPositions();
+
+    forEachIntegrationPoint(positionsAccessor.ref(),
+        [this, &forceDerivAccessor, &positionDerivAccessor, kFactor](
+            const auto& element, const auto& N, const Real weightTimesDetJ,
+            const auto& restPosition, const auto& displacement)
+        {
+            sofa::Deriv_t<DataTypes> positionDeriv {};
+            for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+            {
+                positionDeriv += positionDerivAccessor[element[i]] * N[i];
+            }
+
+            for (const auto& source : l_nonConstantSources)
+            {
+                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement);
+                const auto contribution = sourceDerivative * positionDeriv;
+
+                for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+                {
+                    forceDerivAccessor[element[i]] += contribution * (kFactor * weightTimesDetJ * N[i]);
+                }
+            }
+        });
 }
 
 template <class DataTypes, class ElementType>
