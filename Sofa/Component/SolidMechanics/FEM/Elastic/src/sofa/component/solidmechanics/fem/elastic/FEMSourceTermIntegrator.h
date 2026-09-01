@@ -129,7 +129,9 @@ public:
         const sofa::DataVecDeriv_t<DataTypes>& dx) override;
 
     /**
-     * @brief No-op: the tangent contribution is applied through addDForce only.
+     * @brief Assembles the stiffness contribution of the displacement-dependent terms.
+     *
+     * A no-op when l_nonConstantSources is empty.
      */
     void buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix) override;
 
@@ -144,6 +146,11 @@ public:
      * @brief Degree of the quadrature rule integrating the element matrix M.
      */
     sofa::Data<sofa::Size> d_quadratureDegree;
+
+    /**
+     * @brief Whether to assemble/apply the stiffness of the displacement-dependent terms.
+     */
+    sofa::Data<bool> d_useTangentStiffness;
 
 protected:
 

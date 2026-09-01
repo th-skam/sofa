@@ -23,6 +23,7 @@
 #include <sofa/component/solidmechanics/fem/elastic/FEMSourceTermIntegrator.h>
 #include <sofa/component/solidmechanics/fem/elastic/impl/VectorTools.h>
 #include <sofa/core/MechanicalParams.h>
+#include <sofa/core/behavior/BaseLocalForceFieldMatrix.h>
 
 namespace sofa::component::solidmechanics::fem::elastic
 {
@@ -36,6 +37,8 @@ FEMSourceTermIntegrator<DataTypes, ElementType>::FEMSourceTermIntegrator()
                 "used."))
     , d_quadratureDegree(initData(&d_quadratureDegree, static_cast<sofa::Size>(1), "quadratureDegree",
                 "Degree of the quadrature rule integrating the element matrix M."))
+    , d_useTangentStiffness(initData(&d_useTangentStiffness, true, "useTangentStiffness",
+                "Whether to assemble/apply the stiffness of the displacement-dependent terms."))
 {
     // Re-compute global matrix and constant forces in case of quadrature degree change
     this->addUpdateCallback("reassembleSourceMatrix", {&d_quadratureDegree},
@@ -306,7 +309,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
                                                       sofa::DataVecDeriv_t<DataTypes>& df,
                                                       const sofa::DataVecDeriv_t<DataTypes>& dx)
 {
-    if (this->isComponentStateInvalid() || l_nonConstantSources.empty())
+    if (this->isComponentStateInvalid() || l_nonConstantSources.empty()
+        || !d_useTangentStiffness.getValue())
     {
         return;
     }
@@ -346,7 +350,34 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix)
 {
-    SOFA_UNUSED(matrix);
+    if (this->isComponentStateInvalid() || l_nonConstantSources.empty()
+        || !d_useTangentStiffness.getValue())
+    {
+        return;
+    }
+
+    auto dfdx = matrix->getForceDerivativeIn(this->mstate).withRespectToPositionsIn(this->mstate);
+
+    const auto positionsAccessor = this->mstate->readPositions();
+
+    forEachIntegrationPoint(positionsAccessor.ref(),
+        [this, &dfdx](const auto& element, const auto& N, const Real weightTimesDetJ,
+                      const auto& restPosition, const auto& displacement)
+        {
+            for (const auto& source : l_nonConstantSources)
+            {
+                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement);
+
+                for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+                {
+                    for (sofa::Size j = 0; j < NumberOfNodesInElement; ++j)
+                    {
+                        dfdx(element[i] * spatial_dimensions, element[j] * spatial_dimensions)
+                            += (weightTimesDetJ * N[i] * N[j]) * sourceDerivative;
+                    }
+                }
+            }
+        });
 }
 
 template <class DataTypes, class ElementType>
