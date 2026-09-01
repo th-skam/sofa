@@ -41,10 +41,11 @@ namespace sofa::component::solidmechanics::fem::elastic
  * @class FEMSourceTermIntegrator
  * @brief Integrates source terms into consistent nodal loads.
  *
- * A source term contributes \f$ \int_{\Omega} N_a \, r \, d\Omega \f$ to the right-hand side, where
- * r is the per-node density carried by a linked ConstantSourceTerm (through l_constantSources) and
- * does not depend on the displacement. Every term is thus summed and integrated once in init();
- * addForce merely accumulates the result.
+ * A source term contributes \f$ \int_{\Omega} N_a \, r \, d\Omega \f$ to the right-hand side. r is
+ * the per-node density carried by a linked ConstantSourceTerm (through l_constantSources) or
+ * NonConstantSourceTerm (through l_nonConstantSources). Constant terms do not depend on the
+ * displacement, so they are summed and integrated once in init(); non-constant ones are
+ * re-integrated at every call.
  *
  * @tparam TDataTypes The data types used for positions, velocities, etc. (e.g., Vec3Types).
  * @tparam TElementType The type of finite element (e.g., sofa::geometry::Tetrahedron).
@@ -104,11 +105,12 @@ public:
     /**
      * @brief Adds the nodal source term to the RHS vector.
      *
-     * The source terms were integrated once in init and are only accumulated here.
+     * The constant terms were integrated once in init and are only accumulated here. The
+     * displacement-dependent ones are integrated at the current position.
      *
      * @param mparams Mechanical parameters for the computation.
      * @param f The force vector to which the source term will be added.
-     * @param x The current positions (unused: the load is prescribed on the rest configuration).
+     * @param x The current positions, used only by displacement-dependent terms.
      * @param v The current velocities (unused in this implementation).
      */
     void addForce(
@@ -173,6 +175,18 @@ protected:
      */
     void applyGlobalMatrix(const sofa::VecDeriv_t<DataTypes>& nodalSourceTerm,
         sofa::VecDeriv_t<DataTypes>& result) const;
+
+    /**
+     * @brief Visits every integration point of every element, once.
+     *
+     * The residual and the tangent share all of their element work: the gather, the shape functions,
+     * the Jacobian and the interpolation of the current displacement. It is done here once, so that
+     * a term costs one evaluation per integration point and nothing else.
+     *
+     * The functor is called as functor(element, N, weightTimesDetJ, restPosition, displacement).
+     */
+    template <class TFunctor>
+    void forEachIntegrationPoint(const sofa::VecCoord_t<DataTypes>& x, TFunctor&& functor) const;
 
     /**
      * @brief Computes the geometry-only matrix of each element.

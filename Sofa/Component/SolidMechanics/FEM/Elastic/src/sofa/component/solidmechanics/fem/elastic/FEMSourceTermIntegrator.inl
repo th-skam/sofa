@@ -216,13 +216,52 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
 }
 
 template <class DataTypes, class ElementType>
+template <class TFunctor>
+void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
+    const sofa::VecCoord_t<DataTypes>& x, TFunctor&& functor) const
+{
+    const auto restPositionsAccessor = this->mstate->readRestPositions();
+    const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
+
+    const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+
+    for (const auto& element : elements)
+    {
+        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesRestCoordinates =
+            extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
+        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesCoordinates =
+            extractNodesVectorFromGlobalVector(element, x);
+
+        for (const auto& [quadraturePoint, weight] : quadratureRule)
+        {
+            const auto N = FiniteElement::shapeFunctions(quadraturePoint);
+            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+
+            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                elementNodesRestCoordinates, dN_dq_ref);
+            const auto detJ = sofa::type::absGeneralizedDeterminant(jacobian);
+
+            // TODO: Manual loop now. Helper::evaluateValueInElement is not generic for N > 1.
+            sofa::Coord_t<DataTypes> restPosition {};
+            sofa::Deriv_t<DataTypes> displacement {};
+            for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+            {
+                restPosition += elementNodesRestCoordinates[i] * N[i];
+                displacement += (elementNodesCoordinates[i] - elementNodesRestCoordinates[i]) * N[i];
+            }
+
+            functor(element, N, static_cast<Real>(weight * detJ), restPosition, displacement);
+        }
+    }
+}
+
+template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core::MechanicalParams* mparams,
                                                      sofa::DataVecDeriv_t<DataTypes>& f,
                                                      const sofa::DataVecCoord_t<DataTypes>& x,
                                                      const sofa::DataVecDeriv_t<DataTypes>& v)
 {
     SOFA_UNUSED(mparams);
-    SOFA_UNUSED(x);
     SOFA_UNUSED(v);
 
     if (this->isComponentStateInvalid())
@@ -235,6 +274,29 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
     for (sofa::Index i = 0; i < m_constantForce.size(); ++i)
     {
         forceAccessor[i] += m_constantForce[i];
+    }
+
+    if (!l_nonConstantSources.empty())
+    {
+        // Re-integrate the displacement-dependent terms at the current position: each linked
+        // NonConstantSourceTerm is evaluated at every quadrature point and added to the force.
+        const sofa::helper::ReadAccessor positionAccessor = sofa::helper::getReadAccessor(x);
+        sofa::VecDeriv_t<DataTypes>& nonConstantForce = forceAccessor.wref();
+
+        forEachIntegrationPoint(positionAccessor.ref(),
+            [this, &nonConstantForce](const auto& element, const auto& N, const Real weightTimesDetJ,
+                       const auto& restPosition, const auto& displacement)
+            {
+                for (const auto& source : l_nonConstantSources)
+                {
+                    const auto sourceDensity = source->evaluate(restPosition, displacement);
+
+                    for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+                    {
+                        nonConstantForce[element[i]] += sourceDensity * (weightTimesDetJ * N[i]);
+                    }
+                }
+            });
     }
 }
 
