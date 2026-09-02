@@ -25,6 +25,11 @@
 
 #include <sofa/core/ObjectFactory.h>
 #include <sofa/defaulttype/VecTypes.h>
+#include <sofa/geometry/Edge.h>
+#include <sofa/geometry/Hexahedron.h>
+#include <sofa/geometry/Quad.h>
+#include <sofa/geometry/Tetrahedron.h>
+#include <sofa/geometry/Triangle.h>
 
 namespace sofa::component::solidmechanics::fem::elastic
 {
@@ -32,14 +37,26 @@ namespace sofa::component::solidmechanics::fem::elastic
 void registerNonConstantSourceTerm(sofa::core::ObjectFactory* factory)
 {
     factory->registerObjects(sofa::core::ObjectRegistrationData("Source term (per unit volume) depending on the current displacement; zero unless subclassed")
-        .add< NonConstantSourceTerm<sofa::defaulttype::Vec1Types> >()
-        .add< NonConstantSourceTerm<sofa::defaulttype::Vec2Types> >()
-        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec1Types, sofa::geometry::Edge> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Edge> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Edge> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Triangle> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Quad> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Quad> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Tetrahedron> >()
+        .add< NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Hexahedron> >()
     );
 }
 
-template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec1Types>;
-template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec2Types>;
-template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec1Types, sofa::geometry::Edge>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Edge>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Edge>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Triangle>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec2Types, sofa::geometry::Quad>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Quad>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Tetrahedron>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API NonConstantSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Hexahedron>;
 
 }  // namespace sofa::component::solidmechanics::fem::elastic

@@ -99,7 +99,7 @@ public:
      *
      * If left empty, the NonConstantSourceTerm components found in the current context are used.
      */
-    sofa::MultiLink<FEMSourceTermIntegrator<DataTypes, ElementType>, NonConstantSourceTerm<DataTypes>,
+    sofa::MultiLink<FEMSourceTermIntegrator<DataTypes, ElementType>, NonConstantSourceTerm<DataTypes, ElementType>,
         sofa::BaseLink::FLAG_STOREPATH | sofa::BaseLink::FLAG_STRONGLINK> l_nonConstantSources;
 
     /**
