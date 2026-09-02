@@ -30,8 +30,6 @@
 #include <sofa/fem/FiniteElement.h>
 #include <sofa/linearalgebra/CompressedRowSparseMatrixMechanical.h>
 
-#include <functional>
-
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_FEM_SOURCE_TERM_INTEGRATOR_CPP)
 #include <sofa/fem/FiniteElement[all].h>
 #endif
@@ -197,18 +195,8 @@ protected:
         VecDeriv& result) const;
 
     /**
-     * @brief Visits every integration point of every element and sums the contribution of every
-     * linked source, once per call.
-     *
-     * All sources share the gather, shape functions, Jacobian and displacement interpolation in
-     * addForce, addDForce and buildStiffnessMatrix.
-     */
-    void forEachIntegrationPoint(const VecCoord& x,
-        const std::function<void(const Element&, const ShapeFunctions&,
-            const Coord&, const Deriv&, Real weightTimesDetJ, const Jacobian& jacobian)>& callable) const;
-
-    /**
-     * @brief Computes the geometry-only matrix of each element and caches m_referenceJacobian of the
+     * @brief Computes the geometry-only matrix of each element, caching the Jacobian of the
+     * reference-to-physical mapping of every quadrature point along the way in m_referenceJacobian.
      */
     void calculateElementMatrix(const auto& elements, sofa::type::vector<ElementMatrix>& elementMatrices);
 

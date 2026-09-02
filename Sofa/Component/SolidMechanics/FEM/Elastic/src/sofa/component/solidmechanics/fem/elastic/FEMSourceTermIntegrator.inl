@@ -227,47 +227,6 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
 }
 
 template <class DataTypes, class ElementType>
-void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
-    const VecCoord& x,
-    const std::function<void(const Element&, const ShapeFunctions&,
-        const Coord&, const Deriv&, Real, const Jacobian&)>& callable) const
-{
-    const auto restPositionsAccessor = this->mstate->readRestPositions();
-    const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
-
-    const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
-
-    for (const auto& element : elements)
-    {
-        const std::array<Coord, NumberOfNodesInElement> elementNodesRestCoordinates =
-            extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
-        const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
-            extractNodesVectorFromGlobalVector(element, x);
-
-        std::array<Deriv, NumberOfNodesInElement> elementNodesDisplacement;
-        for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
-        {
-            elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
-        }
-
-        for (const auto& [quadraturePoint, weight] : quadratureRule)
-        {
-            const auto N = FiniteElement::shapeFunctions(quadraturePoint);
-            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
-
-            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
-                elementNodesCoordinates, dN_dq_ref);
-            const auto weightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(jacobian));
-
-            const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
-            const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
-
-            callable(element, N, restPosition, displacement, weightTimesDetJ, jacobian);
-        }
-    }
-}
-
-template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core::MechanicalParams* mparams,
                                                      DataVecDeriv& f,
                                                      const DataVecCoord& x,
@@ -290,16 +249,38 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
 
     if (!l_nonConstantSources.empty())
     {
-        // Re-integrate the displacement-dependent terms at the current position: each linked
-        // NonConstantSourceTerm is evaluated at every quadrature point and added to the force.
         const sofa::helper::ReadAccessor positionAccessor = sofa::helper::getReadAccessor(x);
         VecDeriv& nonConstantForce = forceAccessor.wref();
 
-        forEachIntegrationPoint(positionAccessor.ref(),
-            [this, &nonConstantForce](const Element& element, const ShapeFunctions& N,
-                       const Coord& restPosition, const Deriv& displacement,
-                       const Real weightTimesDetJ, const Jacobian& jacobian)
+        const auto restPositionsAccessor = this->mstate->readRestPositions();
+        const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
+        const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+
+        for (const auto& element : elements)
+        {
+            const std::array<Coord, NumberOfNodesInElement> elementNodesRestCoordinates =
+                extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
+            const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
+                extractNodesVectorFromGlobalVector(element, positionAccessor.ref());
+
+            std::array<Deriv, NumberOfNodesInElement> elementNodesDisplacement;
+            for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
             {
+                elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
+            }
+
+            for (const auto& [quadraturePoint, weight] : quadratureRule)
+            {
+                const auto N = FiniteElement::shapeFunctions(quadraturePoint);
+                const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+
+                const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                    elementNodesCoordinates, dN_dq_ref);
+                const auto weightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(jacobian));
+
+                const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
+                const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
+
                 for (const auto& source : l_nonConstantSources)
                 {
                     const auto sourceDensity = source->evaluate(restPosition, displacement, jacobian);
@@ -309,7 +290,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
                         nonConstantForce[element[i]] += sourceDensity * (weightTimesDetJ * N[i]);
                     }
                 }
-            });
+            }
+        }
     }
 }
 
