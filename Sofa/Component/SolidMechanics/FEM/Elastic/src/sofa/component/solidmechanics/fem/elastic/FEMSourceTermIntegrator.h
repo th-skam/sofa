@@ -186,11 +186,11 @@ protected:
         sofa::VecDeriv_t<DataTypes>& result) const;
 
     /**
-     * @brief Visits every integration point of every element, once.
+     * @brief Visits every integration point of every element and sums the contribution of every
+     * linked source, once per call.
      *
-     * The residual and the tangent share all of their element work: the gather, the shape functions,
-     * the Jacobian and the interpolation of the current displacement. It is done here once, so that
-     * a term costs one evaluation per integration point and nothing else.
+     * All sources share the gather, shape functions, Jacobian and displacement interpolation in
+     * addForce, addDForce and buildStiffnessMatrix.
      *
      * The functor is called as functor(element, N, weightTimesDetJ, restPosition, displacement).
      */
