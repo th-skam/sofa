@@ -209,15 +209,9 @@ protected:
             const Coord&, const Deriv&, const Jacobian&)>& callable) const;
 
     /**
-     * @brief Computes the geometry-only matrix of each element.
+     * @brief Computes the geometry-only matrix of each element and caches m_referenceJacobian of the
      */
     void calculateElementMatrix(const auto& elements, sofa::type::vector<ElementMatrix>& elementMatrices);
-
-    /**
-     * @brief Assembles m_referenceJacobian: the Jacobian of the reference-to-physical mapping at
-     * every quadrature point of every element, evaluated on the rest configuration.
-     */
-    void precomputeJacobians();
 
     /**
      * @brief Scatters the element matrices into the global matrix.
