@@ -48,6 +48,7 @@ FEMSourceTermIntegrator<DataTypes, ElementType>::FEMSourceTermIntegrator()
             {
                 assembleGlobalMatrix();
                 assembleConstantForce();
+                precomputeJacobians();
             }
 
             return this->getComponentState();
@@ -73,6 +74,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::init()
     {
         this->assembleGlobalMatrix();
         this->assembleConstantForce();
+        this->precomputeJacobians();
     }
 
     if (!this->isComponentStateInvalid())
@@ -158,6 +160,39 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::calculateElementMatrix(
 }
 
 template <class DataTypes, class ElementType>
+void FEMSourceTermIntegrator<DataTypes, ElementType>::precomputeJacobians()
+{
+    const auto restPositionsAccessor = this->mstate->readRestPositions();
+    const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
+
+    const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+    const auto quadraturePointsPerElement = quadratureRule.size();
+
+    m_referenceJacobian.resize(elements.size() * quadraturePointsPerElement);
+
+    for (sofa::Index elementId = 0; elementId < elements.size(); ++elementId)
+    {
+        const auto& element = elements[elementId];
+
+        const std::array<Coord, NumberOfNodesInElement> elementNodesRestCoordinates =
+            extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
+
+        sofa::Index quadraturePointIndex = 0;
+        for (const auto& [quadraturePoint, weight] : quadratureRule)
+        {
+            SOFA_UNUSED(weight);
+
+            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+
+            m_referenceJacobian[elementId * quadraturePointsPerElement + quadraturePointIndex] =
+                FiniteElement::Helper::jacobianFromReferenceToPhysical(elementNodesRestCoordinates, dN_dq_ref);
+
+            ++quadraturePointIndex;
+        }
+    }
+}
+
+template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::initializeGlobalMatrix(
     const auto& elements, const sofa::type::vector<ElementMatrix>& elementMatrices)
 {
@@ -229,9 +264,12 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
     const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
 
     const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+    const auto quadraturePointsPerElement = quadratureRule.size();
 
-    for (const auto& element : elements)
+    for (sofa::Index elementId = 0; elementId < elements.size(); ++elementId)
     {
+        const auto& element = elements[elementId];
+
         const std::array<Coord, NumberOfNodesInElement> elementNodesRestCoordinates =
             extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
         const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
@@ -243,19 +281,20 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
             elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
         }
 
+        sofa::Index quadraturePointIndex = 0;
         for (const auto& [quadraturePoint, weight] : quadratureRule)
         {
             const auto N = FiniteElement::shapeFunctions(quadraturePoint);
-            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
 
-            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
-                elementNodesRestCoordinates, dN_dq_ref);
+            const auto& jacobian = m_referenceJacobian[elementId * quadraturePointsPerElement + quadraturePointIndex];
             const auto detJ = sofa::type::absGeneralizedDeterminant(jacobian);
 
             const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
             const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
 
             callable(element, N, static_cast<Real>(weight * detJ), restPosition, displacement);
+
+            ++quadraturePointIndex;
         }
     }
 }

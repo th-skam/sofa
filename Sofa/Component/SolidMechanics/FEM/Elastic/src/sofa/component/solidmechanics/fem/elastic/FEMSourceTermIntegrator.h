@@ -76,11 +76,13 @@ protected:
 
     static constexpr sofa::Size NumberOfNodesInElement = ElementType::NumberOfNodes;
     static constexpr sofa::Size spatial_dimensions = DataTypes::spatial_dimensions;
+    static constexpr sofa::Size TopologicalDimension = FiniteElement::TopologicalDimension;
 
     using ElementMatrix = sofa::type::Mat<NumberOfNodesInElement, NumberOfNodesInElement, sofa::Real_t<DataTypes>>;
     using GlobalMatrix = sofa::linearalgebra::CompressedRowSparseMatrixMechanical<sofa::Real_t<DataTypes>>;
     using Element = typename FiniteElement::TopologyElement;
     using ShapeFunctions = sofa::type::Vec<NumberOfNodesInElement, Real>;
+    using Jacobian = sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>;
 
 public:
 
@@ -212,6 +214,12 @@ protected:
     void calculateElementMatrix(const auto& elements, sofa::type::vector<ElementMatrix>& elementMatrices);
 
     /**
+     * @brief Assembles m_referenceJacobian: the Jacobian of the reference-to-physical mapping at
+     * every quadrature point of every element, evaluated on the rest configuration.
+     */
+    void precomputeJacobians();
+
+    /**
      * @brief Scatters the element matrices into the global matrix.
      */
     void initializeGlobalMatrix(const auto& elements, const sofa::type::vector<ElementMatrix>& elementMatrices);
@@ -230,6 +238,13 @@ protected:
      * time has no effect until the scene is reinitialised.
      */
     VecDeriv m_constantForce;
+
+    /**
+     * @brief Jacobian of the reference-to-physical mapping, evaluated on the rest configuration.
+     *
+     * Assembled once in init on the rest configuration.
+     */
+    sofa::type::vector<Jacobian> m_referenceJacobian;
 };
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_FEM_SOURCE_TERM_INTEGRATOR_CPP)
