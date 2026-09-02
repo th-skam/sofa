@@ -24,10 +24,12 @@
 #include <sofa/component/solidmechanics/fem/elastic/config.h>
 #include <sofa/core/BaseNodalProperty.h>
 #include <sofa/core/trait/DataTypes.h>
+#include <sofa/fem/FiniteElement.h>
 #include <sofa/type/Mat.h>
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_NON_CONSTANT_SOURCE_TERM_CPP)
 #include <sofa/defaulttype/VecTypes.h>
+#include <sofa/fem/FiniteElement[all].h>
 #include <sofa/geometry/Edge.h>
 #include <sofa/geometry/Hexahedron.h>
 #include <sofa/geometry/Quad.h>
@@ -64,16 +66,23 @@ public:
 
     static constexpr sofa::Size spatial_dimensions = DataTypes::spatial_dimensions;
 
+    using FiniteElement = sofa::fem::FiniteElement<ElementType, DataTypes>;
+    static constexpr sofa::Size TopologicalDimension = FiniteElement::TopologicalDimension;
+
+    /// Jacobian of the reference-to-physical mapping, evaluated where evaluate() is called.
+    using Jacobian = sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>;
+
     /// Derivative of the source density with respect to the displacement, at one point.
     using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
 
     /**
      * @brief Source density at one integration point. Defaults to zero.
      */
-    virtual Deriv evaluate(const Coord& restPosition, const Deriv& displacement) const
+    virtual Deriv evaluate(const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian) const
     {
         SOFA_UNUSED(restPosition);
         SOFA_UNUSED(displacement);
+        SOFA_UNUSED(jacobian);
         return Deriv{};
     }
 

@@ -25,6 +25,7 @@
 
 #include <sofa/core/ObjectFactory.h>
 #include <sofa/defaulttype/VecTypes.h>
+#include <sofa/fem/FiniteElement[all].h>
 #include <sofa/geometry/Edge.h>
 #include <sofa/geometry/Hexahedron.h>
 #include <sofa/geometry/Quad.h>

@@ -206,7 +206,7 @@ protected:
      */
     void forEachIntegrationPoint(const VecCoord& x,
         const std::function<void(const Element&, const ShapeFunctions&, Real,
-            const Coord&, const Deriv&)>& callable) const;
+            const Coord&, const Deriv&, const Jacobian&)>& callable) const;
 
     /**
      * @brief Computes the geometry-only matrix of each element.

@@ -90,10 +90,10 @@
                 <TriangleSetTopologyModifier name="TopFaceModifier"/>
                 <TriangleSetGeometryAlgorithms name="TopFaceGeomAlgo" template="Vec3"/>
 
-                <NonConstantSourceTerm name="tractionStub" template="Vec3"/>
+                <SurfacePressure name="load" template="Vec3,Triangle" pressure="1000"/>
 
                 <FEMSourceTermIntegrator name="traction" template="Vec3,Triangle" topology="@TopFace_topo"
-                               quadratureDegree="1" nonConstantSources="@tractionStub"/>
+                               quadratureDegree="1" nonConstantSources="@load"/>
             </Node>
         </Node>
     </Node>
