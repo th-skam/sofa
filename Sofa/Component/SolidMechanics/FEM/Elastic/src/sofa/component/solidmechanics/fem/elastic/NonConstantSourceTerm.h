@@ -95,10 +95,11 @@ public:
     /**
      * @brief Derivative of evaluate() with respect to the displacement. Defaults to zero.
      */
-    virtual SourceDerivative evaluateDerivative(const Coord& restPosition, const Deriv& displacement) const
+    virtual SourceDerivative evaluateDerivative(const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian) const
     {
         SOFA_UNUSED(restPosition);
         SOFA_UNUSED(displacement);
+        SOFA_UNUSED(jacobian);
         return SourceDerivative{};
     }
 

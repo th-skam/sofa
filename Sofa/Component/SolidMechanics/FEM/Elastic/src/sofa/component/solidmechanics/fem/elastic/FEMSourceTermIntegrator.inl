@@ -357,11 +357,15 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
     const sofa::helper::ReadAccessor positionDerivAccessor = sofa::helper::getReadAccessor(dx);
     const auto positionsAccessor = this->mstate->readPositions();
 
-    forEachIntegrationPoint(positionsAccessor.ref(), false,
+    const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
+        [](const auto& source) { return !source->d_useRestShape.getValue(); });
+
+    forEachIntegrationPoint(positionsAccessor.ref(), needsCurrentJacobian,
         [this, &forceDerivAccessor, &positionDerivAccessor, kFactor](
             const Element& element, const ShapeFunctions& N,
             const Coord& restPosition, const Deriv& displacement,
-            const Real weightTimesDetJ, const Jacobian&, Real, const Jacobian&)
+            const Real restWeightTimesDetJ, const Jacobian& restJacobian,
+            const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
         {
             std::array<Deriv, NumberOfNodesInElement> elementPositionDeriv;
             for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -372,7 +376,11 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
 
             for (const auto& source : l_nonConstantSources)
             {
-                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement);
+                const bool useRestShape = source->d_useRestShape.getValue();
+                const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
+                const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
+
+                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement, jacobian);
                 const auto contribution = sourceDerivative * positionDeriv;
 
                 for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -396,14 +404,22 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa:
 
     const auto positionsAccessor = this->mstate->readPositions();
 
-    forEachIntegrationPoint(positionsAccessor.ref(), false,
+    const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
+        [](const auto& source) { return !source->d_useRestShape.getValue(); });
+
+    forEachIntegrationPoint(positionsAccessor.ref(), needsCurrentJacobian,
         [this, &dfdx](const Element& element, const ShapeFunctions& N,
                       const Coord& restPosition, const Deriv& displacement,
-                      const Real weightTimesDetJ, const Jacobian&, Real, const Jacobian&)
+                      const Real restWeightTimesDetJ, const Jacobian& restJacobian,
+                      const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
         {
             for (const auto& source : l_nonConstantSources)
             {
-                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement);
+                const bool useRestShape = source->d_useRestShape.getValue();
+                const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
+                const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
+
+                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement, jacobian);
 
                 for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
                 {
