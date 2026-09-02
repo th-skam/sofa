@@ -71,7 +71,7 @@ public:
     {
         SOFA_UNUSED(restPosition);
         SOFA_UNUSED(displacement);
-        return jacobian.col(0).cross(jacobian.col(1)) * d_pressure.getValue();
+        return jacobian.col(0).cross(jacobian.col(1)).normalized() * d_pressure.getValue();
     }
 
 protected:
