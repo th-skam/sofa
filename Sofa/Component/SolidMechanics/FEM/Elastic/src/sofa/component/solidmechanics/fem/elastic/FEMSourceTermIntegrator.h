@@ -131,7 +131,9 @@ public:
         const DataVecDeriv& v) override;
 
     /**
-     * @brief Currently a no-op: displacement-dependent terms have no tangent yet.
+     * @brief Applies the tangent of the displacement-dependent terms to dx.
+     *
+     * A no-op when l_nonConstantSources is empty.
      */
     void addDForce(const sofa::core::MechanicalParams* mparams,
         DataVecDeriv& df,

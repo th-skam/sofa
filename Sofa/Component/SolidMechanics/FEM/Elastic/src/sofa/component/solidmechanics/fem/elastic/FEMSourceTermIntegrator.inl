@@ -300,9 +300,50 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
                                                       DataVecDeriv& df,
                                                       const DataVecDeriv& dx)
 {
-    SOFA_UNUSED(mparams);
-    SOFA_UNUSED(df);
-    SOFA_UNUSED(dx);
+    if (this->isComponentStateInvalid() || l_nonConstantSources.empty() || !d_useTangentStiffness.getValue())
+    {
+        return;
+    }
+
+    // never mparams->kFactor() directly, so that Rayleigh stiffness damping is folded in
+    const auto kFactor = static_cast<Real>(sofa::core::mechanicalparams::kFactorIncludingRayleighDamping(
+        mparams, this->rayleighStiffness.getValue()));
+
+    auto forceDerivAccessor = sofa::helper::getWriteAccessor(df);
+    const sofa::helper::ReadAccessor positionDerivAccessor = sofa::helper::getReadAccessor(dx);
+    const auto positionsAccessor = this->mstate->readPositions();
+
+    const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
+    const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+
+    for (const auto& element : elements)
+    {
+        const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
+            extractNodesVectorFromGlobalVector(element, positionsAccessor.ref());
+
+        for (const auto& [quadraturePoint, weight] : quadratureRule)
+        {
+            const auto N = FiniteElement::shapeFunctions(quadraturePoint);
+            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+
+            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                elementNodesCoordinates, dN_dq_ref);
+
+            Deriv contraction{};
+            for (const auto& source : l_nonConstantSources)
+            {
+                for (sofa::Size j = 0; j < NumberOfNodesInElement; ++j)
+                {
+                    contraction += source->evaluateStiffness(jacobian, dN_dq_ref[j]) * positionDerivAccessor[element[j]];
+                }
+            }
+
+            for (sofa::Size a = 0; a < NumberOfNodesInElement; ++a)
+            {
+                forceDerivAccessor[element[a]] += contraction * (kFactor * static_cast<Real>(weight) * N[a]);
+            }
+        }
+    }
 }
 
 template <class DataTypes, class ElementType>
