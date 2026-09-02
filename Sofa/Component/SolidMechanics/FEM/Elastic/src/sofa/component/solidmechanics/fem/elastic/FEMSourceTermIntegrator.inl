@@ -137,7 +137,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::calculateElementMatrix(
         const auto& element = elements[elementId];
         auto& elementMatrix = elementMatrices[elementId];
 
-        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesRestCoordinates =
+        const std::array<Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesRestCoordinates =
             extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
 
         // M_ij = integral of N_i N_j dV, evaluated on the rest configuration (geometry only).
@@ -184,7 +184,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::initializeGlobalMatrix(
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::applyGlobalMatrix(
-    const sofa::VecDeriv_t<DataTypes>& nodalSourceTerm, sofa::VecDeriv_t<DataTypes>& result) const
+    const VecDeriv_t<DataTypes>& nodalSourceTerm, VecDeriv_t<DataTypes>& result) const
 {
     // f_i = sum_j M_ij b_j : apply the global matrix to the nodal source term.
     for (sofa::Index xi = 0; xi < m_globalMatrix.rowIndex.size(); ++xi)
@@ -207,7 +207,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
     const auto size = this->mstate->getSize();
 
     // Aggregate all contributions to one vector before applying the global matrix
-    sofa::VecDeriv_t<DataTypes> sourceTerms(size, sofa::Deriv_t<DataTypes>{});
+    VecDeriv_t<DataTypes> sourceTerms(size, Deriv_t<DataTypes>{});
 
     for (const auto& source : l_constantSources)
     {
@@ -215,14 +215,14 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
             sourceTerms[i] += source->getNodeProperty(i);
     }
 
-    m_constantForce.assign(size, sofa::Deriv_t<DataTypes>{});
+    m_constantForce.assign(size, Deriv_t<DataTypes>{});
     applyGlobalMatrix(sourceTerms, m_constantForce);
 }
 
 template <class DataTypes, class ElementType>
 template <class TFunctor>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
-    const sofa::VecCoord_t<DataTypes>& x, TFunctor&& functor) const
+    const VecCoord_t<DataTypes>& x, TFunctor&& functor) const
 {
     const auto restPositionsAccessor = this->mstate->readRestPositions();
     const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
@@ -231,12 +231,12 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
 
     for (const auto& element : elements)
     {
-        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesRestCoordinates =
+        const std::array<Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesRestCoordinates =
             extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
-        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesCoordinates =
+        const std::array<Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesCoordinates =
             extractNodesVectorFromGlobalVector(element, x);
 
-        std::array<sofa::Deriv_t<DataTypes>, NumberOfNodesInElement> elementNodesDisplacement;
+        std::array<Deriv_t<DataTypes>, NumberOfNodesInElement> elementNodesDisplacement;
         for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
         {
             elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
@@ -261,9 +261,9 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core::MechanicalParams* mparams,
-                                                     sofa::DataVecDeriv_t<DataTypes>& f,
-                                                     const sofa::DataVecCoord_t<DataTypes>& x,
-                                                     const sofa::DataVecDeriv_t<DataTypes>& v)
+                                                     DataVecDeriv_t<DataTypes>& f,
+                                                     const DataVecCoord_t<DataTypes>& x,
+                                                     const DataVecDeriv_t<DataTypes>& v)
 {
     SOFA_UNUSED(mparams);
     SOFA_UNUSED(v);
@@ -285,7 +285,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
         // Re-integrate the displacement-dependent terms at the current position: each linked
         // NonConstantSourceTerm is evaluated at every quadrature point and added to the force.
         const sofa::helper::ReadAccessor positionAccessor = sofa::helper::getReadAccessor(x);
-        sofa::VecDeriv_t<DataTypes>& nonConstantForce = forceAccessor.wref();
+        VecDeriv_t<DataTypes>& nonConstantForce = forceAccessor.wref();
 
         forEachIntegrationPoint(positionAccessor.ref(),
             [this, &nonConstantForce](const auto& element, const auto& N, const Real weightTimesDetJ,
@@ -306,8 +306,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core::MechanicalParams* mparams,
-                                                      sofa::DataVecDeriv_t<DataTypes>& df,
-                                                      const sofa::DataVecDeriv_t<DataTypes>& dx)
+                                                      DataVecDeriv_t<DataTypes>& df,
+                                                      const DataVecDeriv_t<DataTypes>& dx)
 {
     if (this->isComponentStateInvalid() || l_nonConstantSources.empty()
         || !d_useTangentStiffness.getValue())
@@ -328,7 +328,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
             const auto& element, const auto& N, const Real weightTimesDetJ,
             const auto& restPosition, const auto& displacement)
         {
-            std::array<sofa::Deriv_t<DataTypes>, NumberOfNodesInElement> elementPositionDeriv;
+            std::array<Deriv_t<DataTypes>, NumberOfNodesInElement> elementPositionDeriv;
             for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
             {
                 elementPositionDeriv[i] = positionDerivAccessor[element[i]];
@@ -383,7 +383,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa:
 
 template <class DataTypes, class ElementType>
 SReal FEMSourceTermIntegrator<DataTypes, ElementType>::getPotentialEnergy(const sofa::core::MechanicalParams* mparams,
-                                                                const sofa::DataVecCoord_t<DataTypes>& x) const
+                                                                const DataVecCoord_t<DataTypes>& x) const
 {
     SOFA_UNUSED(mparams);
 
