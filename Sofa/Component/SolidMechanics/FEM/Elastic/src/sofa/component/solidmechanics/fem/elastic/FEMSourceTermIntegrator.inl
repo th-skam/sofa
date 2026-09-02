@@ -326,7 +326,49 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix)
 {
-    SOFA_UNUSED(matrix);
+    if (this->isComponentStateInvalid() || l_nonConstantSources.empty() || !d_useTangentStiffness.getValue())
+    {
+        return;
+    }
+
+    auto dfdx = matrix->getForceDerivativeIn(this->mstate).withRespectToPositionsIn(this->mstate);
+
+    const auto positionsAccessor = this->mstate->readPositions();
+    const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
+    const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
+
+    for (const auto& element : elements)
+    {
+        const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
+            extractNodesVectorFromGlobalVector(element, positionsAccessor.ref());
+
+        for (const auto& [quadraturePoint, weight] : quadratureRule)
+        {
+            const auto N = FiniteElement::shapeFunctions(quadraturePoint);
+            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+
+            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                elementNodesCoordinates, dN_dq_ref);
+
+            std::array<SourceDerivative, NumberOfNodesInElement> D{};
+            for (const auto& source : l_nonConstantSources)
+            {
+                for (sofa::Size j = 0; j < NumberOfNodesInElement; ++j)
+                {
+                    D[j] += source->evaluateStiffness(jacobian, dN_dq_ref[j]);
+                }
+            }
+
+            for (sofa::Size a = 0; a < NumberOfNodesInElement; ++a)
+            {
+                for (sofa::Size j = 0; j < NumberOfNodesInElement; ++j)
+                {
+                    dfdx(element[a] * spatial_dimensions, element[j] * spatial_dimensions)
+                        += (static_cast<Real>(weight) * N[a]) * D[j];
+                }
+            }
+        }
+    }
 }
 
 template <class DataTypes, class ElementType>

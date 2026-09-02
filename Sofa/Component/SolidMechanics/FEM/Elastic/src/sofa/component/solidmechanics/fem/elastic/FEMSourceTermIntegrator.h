@@ -83,6 +83,7 @@ protected:
     using Element = typename FiniteElement::TopologyElement;
     using ShapeFunctions = sofa::type::Vec<NumberOfNodesInElement, Real>;
     using Jacobian = sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>;
+    using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
 
 public:
 
@@ -139,7 +140,9 @@ public:
         const DataVecDeriv& dx) override;
 
     /**
-     * @brief Currently a no-op: displacement-dependent terms have no tangent yet.
+     * @brief Assembles the stiffness contribution of the displacement-dependent terms.
+     *
+     * A no-op when l_nonConstantSources is empty.
      */
     void buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix) override;
 

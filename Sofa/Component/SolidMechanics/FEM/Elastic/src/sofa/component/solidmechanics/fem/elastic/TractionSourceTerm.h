@@ -56,6 +56,8 @@ public:
     using Deriv = sofa::Deriv_t<DataTypes>;
     using Coord = sofa::Coord_t<DataTypes>;
     using Jacobian = typename NonConstantSourceTerm<DataTypes, ElementType>::Jacobian;
+    using SourceDerivative = typename NonConstantSourceTerm<DataTypes, ElementType>::SourceDerivative;
+    static constexpr sofa::Size TopologicalDimension = NonConstantSourceTerm<DataTypes, ElementType>::TopologicalDimension;
 
     /**
      * @brief Pressure per unit area, following the current-configuration normal direction.
@@ -72,6 +74,28 @@ public:
         SOFA_UNUSED(restPosition);
         SOFA_UNUSED(displacement);
         return jacobian.col(0).cross(jacobian.col(1)).normalized() * d_pressure.getValue();
+    }
+
+    /**
+     * @brief d(pressure * jacobian.col(0) x jacobian.col(1))/d(node j position).
+     */
+    SourceDerivative evaluateStiffness(const Jacobian& jacobian,
+        const sofa::type::Vec<TopologicalDimension, Real>& gradientOfShapeFunction) const override
+    {
+        const auto t0 = jacobian.col(0);
+        const auto t1 = jacobian.col(1);
+
+        SourceDerivative skewT0{};
+        skewT0(0,1) = -t0[2]; skewT0(0,2) =  t0[1];
+        skewT0(1,0) =  t0[2]; skewT0(1,2) = -t0[0];
+        skewT0(2,0) = -t0[1]; skewT0(2,1) =  t0[0];
+
+        SourceDerivative skewT1{};
+        skewT1(0,1) = -t1[2]; skewT1(0,2) =  t1[1];
+        skewT1(1,0) =  t1[2]; skewT1(1,2) = -t1[0];
+        skewT1(2,0) = -t1[1]; skewT1(2,1) =  t1[0];
+
+        return (skewT0 * gradientOfShapeFunction[1] - skewT1 * gradientOfShapeFunction[0]) * d_pressure.getValue();
     }
 
 protected:

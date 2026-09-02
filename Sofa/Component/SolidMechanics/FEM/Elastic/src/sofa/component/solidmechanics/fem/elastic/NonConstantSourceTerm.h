@@ -71,6 +71,9 @@ public:
     /// Jacobian of the reference-to-physical mapping, evaluated where evaluate() is called.
     using Jacobian = sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>;
 
+    /// d(nodal force)/d(node j position), for one test node, at one integration point.
+    using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
+
     /**
      * @brief Source density at one integration point. Defaults to zero.
      */
@@ -80,6 +83,18 @@ public:
         SOFA_UNUSED(displacement);
         SOFA_UNUSED(jacobian);
         return Deriv{};
+    }
+
+    /**
+     * @brief Stiffness contribution of node j at one integration point
+     * Defaults to zero.
+     */
+    virtual SourceDerivative evaluateStiffness(const Jacobian& jacobian,
+        const sofa::type::Vec<TopologicalDimension, Real>& gradientOfShapeFunction) const
+    {
+        SOFA_UNUSED(jacobian);
+        SOFA_UNUSED(gradientOfShapeFunction);
+        return SourceDerivative{};
     }
 
 protected:
