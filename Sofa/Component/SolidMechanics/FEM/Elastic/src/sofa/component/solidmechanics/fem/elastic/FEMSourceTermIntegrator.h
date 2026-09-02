@@ -132,18 +132,14 @@ public:
         const DataVecDeriv& v) override;
 
     /**
-     * @brief Applies the tangent of the displacement-dependent terms to dx.
-     *
-     * A no-op when l_nonConstantSources is empty.
+     * @brief Currently a no-op: displacement-dependent terms have no tangent yet.
      */
     void addDForce(const sofa::core::MechanicalParams* mparams,
         DataVecDeriv& df,
         const DataVecDeriv& dx) override;
 
     /**
-     * @brief Assembles the stiffness contribution of the displacement-dependent terms.
-     *
-     * A no-op when l_nonConstantSources is empty.
+     * @brief Currently a no-op: displacement-dependent terms have no tangent yet.
      */
     void buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix) override;
 
@@ -204,11 +200,9 @@ protected:
      * All sources share the gather, shape functions, Jacobian and displacement interpolation in
      * addForce, addDForce and buildStiffnessMatrix.
      */
-    void forEachIntegrationPoint(const VecCoord& x, bool needsCurrentJacobian,
+    void forEachIntegrationPoint(const VecCoord& x,
         const std::function<void(const Element&, const ShapeFunctions&,
-            const Coord&, const Deriv&,
-            Real restWeightTimesDetJ, const Jacobian& restJacobian,
-            Real currentWeightTimesDetJ, const Jacobian& currentJacobian)>& callable) const;
+            const Coord&, const Deriv&, Real weightTimesDetJ, const Jacobian& jacobian)>& callable) const;
 
     /**
      * @brief Computes the geometry-only matrix of each element and caches m_referenceJacobian of the

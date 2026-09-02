@@ -19,9 +19,9 @@
 *                                                                             *
 * Contact information: contact@sofa-framework.org                             *
 ******************************************************************************/
-#define SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_SURFACE_PRESSURE_CPP
+#define SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_TRACTION_SOURCE_TERM_CPP
 
-#include <sofa/component/solidmechanics/fem/elastic/SurfacePressure.h>
+#include <sofa/component/solidmechanics/fem/elastic/TractionSourceTerm.h>
 
 #include <sofa/core/ObjectFactory.h>
 #include <sofa/defaulttype/VecTypes.h>
@@ -31,15 +31,15 @@
 namespace sofa::component::solidmechanics::fem::elastic
 {
 
-void registerSurfacePressure(sofa::core::ObjectFactory* factory)
+void registerTractionSourceTerm(sofa::core::ObjectFactory* factory)
 {
     factory->registerObjects(sofa::core::ObjectRegistrationData("Pressure load following the current-configuration normal direction, on a Triangle or Quad boundary")
-        .add< SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle> >()
-        .add< SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Quad> >()
+        .add< TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle> >()
+        .add< TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Quad> >()
     );
 }
 
-template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle>;
-template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Quad>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle>;
+template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Quad>;
 
 }  // namespace sofa::component::solidmechanics::fem::elastic

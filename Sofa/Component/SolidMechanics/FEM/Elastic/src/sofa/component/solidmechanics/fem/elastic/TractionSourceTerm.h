@@ -24,7 +24,7 @@
 #include <sofa/component/solidmechanics/fem/elastic/config.h>
 #include <sofa/component/solidmechanics/fem/elastic/NonConstantSourceTerm.h>
 
-#if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_SURFACE_PRESSURE_CPP)
+#if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_TRACTION_SOURCE_TERM_CPP)
 #include <sofa/defaulttype/VecTypes.h>
 #include <sofa/geometry/Quad.h>
 #include <sofa/geometry/Triangle.h>
@@ -34,7 +34,7 @@ namespace sofa::component::solidmechanics::fem::elastic
 {
 
 /**
- * @class SurfacePressure
+ * @class TractionSourceTerm
  * @brief A pressure load, following the current-configuration normal direction.
  *
  * Restricted to Triangle and Quad, the same element types SurfacePressureForceField supports.
@@ -43,13 +43,13 @@ namespace sofa::component::solidmechanics::fem::elastic
  * @tparam TElementType The boundary element type (Triangle or Quad).
  */
 template <class TDataTypes, class TElementType>
-class SurfacePressure : public NonConstantSourceTerm<TDataTypes, TElementType>
+class TractionSourceTerm : public NonConstantSourceTerm<TDataTypes, TElementType>
 {
 public:
     using DataTypes = TDataTypes;
     using ElementType = TElementType;
 
-    SOFA_CLASS(SOFA_TEMPLATE2(SurfacePressure, DataTypes, ElementType),
+    SOFA_CLASS(SOFA_TEMPLATE2(TractionSourceTerm, DataTypes, ElementType),
         SOFA_TEMPLATE2(NonConstantSourceTerm, DataTypes, ElementType));
 
     using Real = sofa::Real_t<DataTypes>;
@@ -63,9 +63,9 @@ public:
     sofa::Data<Real> d_pressure;
 
     /**
-     * @brief Pressure times the current-configuration normal-area vector, jacobian.col(0) x
-     * jacobian.col(1) — same tangent convention as SurfacePressureForceField, generalized through
-     * the Jacobian so Triangle and Quad share one formula.
+     * @brief pressure * unit normal, jacobian.col(0) x jacobian.col(1) normalized — same tangent
+     * convention as SurfacePressureForceField, generalized through the Jacobian so Triangle and
+     * Quad share one formula.
      */
     Deriv evaluate(const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian) const override
     {
@@ -76,15 +76,15 @@ public:
 
 protected:
 
-    SurfacePressure()
+    TractionSourceTerm()
         : d_pressure(initData(&d_pressure, Real{0}, "pressure",
               "Pressure per unit area, following the current-configuration normal direction."))
     {}
 };
 
-#if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_SURFACE_PRESSURE_CPP)
-extern template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle>;
-extern template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API SurfacePressure<sofa::defaulttype::Vec3Types, sofa::geometry::Quad>;
+#if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_TRACTION_SOURCE_TERM_CPP)
+extern template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Triangle>;
+extern template class SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_API TractionSourceTerm<sofa::defaulttype::Vec3Types, sofa::geometry::Quad>;
 #endif
 
 }  // namespace sofa::component::solidmechanics::fem::elastic

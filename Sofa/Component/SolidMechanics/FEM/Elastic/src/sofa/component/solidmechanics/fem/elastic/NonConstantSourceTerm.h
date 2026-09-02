@@ -44,9 +44,8 @@ namespace sofa::component::solidmechanics::fem::elastic
  * @class NonConstantSourceTerm
  * @brief A source density prescribed at the nodes, depending on the current displacement.
  *
- * Both evaluate() and evaluateDerivative() default to zero. This class contributes nothing
- * until subclassed. Link it (or a subclass) to a FEMSourceTermIntegrator through
- * l_nonConstantSources.
+ * evaluate() defaults to zero. This class contributes nothing until subclassed. Link it (or a
+ * subclass) to a FEMSourceTermIntegrator through l_nonConstantSources.
  *
  * @tparam TDataTypes The data types used for positions, velocities, etc. (e.g., Vec3Types).
  */
@@ -72,15 +71,6 @@ public:
     /// Jacobian of the reference-to-physical mapping, evaluated where evaluate() is called.
     using Jacobian = sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>;
 
-    /// Derivative of the source density with respect to the displacement, at one point.
-    using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
-
-    /**
-     * @brief Whether evaluate() receives the rest-configuration Jacobian (cached) or updates it
-     * False by default.
-     */
-    sofa::Data<bool> d_useRestShape;
-
     /**
      * @brief Source density at one integration point. Defaults to zero.
      */
@@ -92,25 +82,9 @@ public:
         return Deriv{};
     }
 
-    /**
-     * @brief Derivative of evaluate() with respect to the displacement. Defaults to zero.
-     */
-    virtual SourceDerivative evaluateDerivative(const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian) const
-    {
-        SOFA_UNUSED(restPosition);
-        SOFA_UNUSED(displacement);
-        SOFA_UNUSED(jacobian);
-        return SourceDerivative{};
-    }
-
 protected:
 
-    NonConstantSourceTerm()
-        : sofa::core::BaseNodalProperty<Deriv>(Deriv{})
-        , d_useRestShape(initData(&d_useRestShape, false, "useRestShape",
-              "Whether evaluate() receives the rest-configuration Jacobian instead of the "
-              "current-configuration one."))
-    {}
+    NonConstantSourceTerm() : sofa::core::BaseNodalProperty<Deriv>(Deriv{}) {}
 };
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_NON_CONSTANT_SOURCE_TERM_CPP)

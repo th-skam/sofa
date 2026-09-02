@@ -25,8 +25,6 @@
 #include <sofa/core/MechanicalParams.h>
 #include <sofa/core/behavior/BaseLocalForceFieldMatrix.h>
 
-#include <algorithm>
-
 namespace sofa::component::solidmechanics::fem::elastic
 {
 
@@ -230,21 +228,17 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
-    const VecCoord& x, bool needsCurrentJacobian,
+    const VecCoord& x,
     const std::function<void(const Element&, const ShapeFunctions&,
-        const Coord&, const Deriv&,
-        Real, const Jacobian&, Real, const Jacobian&)>& callable) const
+        const Coord&, const Deriv&, Real, const Jacobian&)>& callable) const
 {
     const auto restPositionsAccessor = this->mstate->readRestPositions();
     const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
 
     const auto quadratureRule = FiniteElement::quadratureRule(d_quadratureDegree.getValue());
-    const auto quadraturePointsPerElement = quadratureRule.size();
 
-    for (sofa::Index elementId = 0; elementId < elements.size(); ++elementId)
+    for (const auto& element : elements)
     {
-        const auto& element = elements[elementId];
-
         const std::array<Coord, NumberOfNodesInElement> elementNodesRestCoordinates =
             extractNodesVectorFromGlobalVector(element, restPositionsAccessor.ref());
         const std::array<Coord, NumberOfNodesInElement> elementNodesCoordinates =
@@ -256,31 +250,19 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
             elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
         }
 
-        sofa::Index quadraturePointIndex = 0;
         for (const auto& [quadraturePoint, weight] : quadratureRule)
         {
             const auto N = FiniteElement::shapeFunctions(quadraturePoint);
+            const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
 
-            const auto& restJacobian = m_referenceJacobian[elementId * quadraturePointsPerElement + quadraturePointIndex];
-            const auto restWeightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(restJacobian));
-
-            Jacobian currentJacobian{};
-            Real currentWeightTimesDetJ{};
-            if (needsCurrentJacobian)
-            {
-                const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
-                currentJacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
-                    elementNodesCoordinates, dN_dq_ref);
-                currentWeightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(currentJacobian));
-            }
+            const auto jacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                elementNodesCoordinates, dN_dq_ref);
+            const auto weightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(jacobian));
 
             const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
             const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
 
-            callable(element, N, restPosition, displacement,
-                restWeightTimesDetJ, restJacobian, currentWeightTimesDetJ, currentJacobian);
-
-            ++quadraturePointIndex;
+            callable(element, N, restPosition, displacement, weightTimesDetJ, jacobian);
         }
     }
 }
@@ -313,20 +295,13 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
         const sofa::helper::ReadAccessor positionAccessor = sofa::helper::getReadAccessor(x);
         VecDeriv& nonConstantForce = forceAccessor.wref();
 
-        const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
-            [](const auto& source) { return !source->d_useRestShape.getValue(); });
-
-        forEachIntegrationPoint(positionAccessor.ref(), needsCurrentJacobian,
+        forEachIntegrationPoint(positionAccessor.ref(),
             [this, &nonConstantForce](const Element& element, const ShapeFunctions& N,
                        const Coord& restPosition, const Deriv& displacement,
-                       const Real restWeightTimesDetJ, const Jacobian& restJacobian,
-                       const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
+                       const Real weightTimesDetJ, const Jacobian& jacobian)
             {
                 for (const auto& source : l_nonConstantSources)
                 {
-                    const bool useRestShape = source->d_useRestShape.getValue();
-                    const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
-                    const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
                     const auto sourceDensity = source->evaluate(restPosition, displacement, jacobian);
 
                     for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -343,94 +318,15 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
                                                       DataVecDeriv& df,
                                                       const DataVecDeriv& dx)
 {
-    if (this->isComponentStateInvalid() || l_nonConstantSources.empty()
-        || !d_useTangentStiffness.getValue())
-    {
-        return;
-    }
-
-    // never mparams->kFactor() directly, so that Rayleigh stiffness damping is folded in
-    const auto kFactor = static_cast<Real>(sofa::core::mechanicalparams::kFactorIncludingRayleighDamping(
-        mparams, this->rayleighStiffness.getValue()));
-
-    auto forceDerivAccessor = sofa::helper::getWriteAccessor(df);
-    const sofa::helper::ReadAccessor positionDerivAccessor = sofa::helper::getReadAccessor(dx);
-    const auto positionsAccessor = this->mstate->readPositions();
-
-    const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
-        [](const auto& source) { return !source->d_useRestShape.getValue(); });
-
-    forEachIntegrationPoint(positionsAccessor.ref(), needsCurrentJacobian,
-        [this, &forceDerivAccessor, &positionDerivAccessor, kFactor](
-            const Element& element, const ShapeFunctions& N,
-            const Coord& restPosition, const Deriv& displacement,
-            const Real restWeightTimesDetJ, const Jacobian& restJacobian,
-            const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
-        {
-            std::array<Deriv, NumberOfNodesInElement> elementPositionDeriv;
-            for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
-            {
-                elementPositionDeriv[i] = positionDerivAccessor[element[i]];
-            }
-            const auto positionDeriv = FiniteElement::Helper::evaluateValueInElement(elementPositionDeriv, N);
-
-            for (const auto& source : l_nonConstantSources)
-            {
-                const bool useRestShape = source->d_useRestShape.getValue();
-                const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
-                const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
-
-                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement, jacobian);
-                const auto contribution = sourceDerivative * positionDeriv;
-
-                for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
-                {
-                    forceDerivAccessor[element[i]] += contribution * (kFactor * weightTimesDetJ * N[i]);
-                }
-            }
-        });
+    SOFA_UNUSED(mparams);
+    SOFA_UNUSED(df);
+    SOFA_UNUSED(dx);
 }
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa::core::behavior::StiffnessMatrix* matrix)
 {
-    if (this->isComponentStateInvalid() || l_nonConstantSources.empty()
-        || !d_useTangentStiffness.getValue())
-    {
-        return;
-    }
-
-    auto dfdx = matrix->getForceDerivativeIn(this->mstate).withRespectToPositionsIn(this->mstate);
-
-    const auto positionsAccessor = this->mstate->readPositions();
-
-    const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
-        [](const auto& source) { return !source->d_useRestShape.getValue(); });
-
-    forEachIntegrationPoint(positionsAccessor.ref(), needsCurrentJacobian,
-        [this, &dfdx](const Element& element, const ShapeFunctions& N,
-                      const Coord& restPosition, const Deriv& displacement,
-                      const Real restWeightTimesDetJ, const Jacobian& restJacobian,
-                      const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
-        {
-            for (const auto& source : l_nonConstantSources)
-            {
-                const bool useRestShape = source->d_useRestShape.getValue();
-                const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
-                const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
-
-                const auto sourceDerivative = source->evaluateDerivative(restPosition, displacement, jacobian);
-
-                for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
-                {
-                    for (sofa::Size j = 0; j < NumberOfNodesInElement; ++j)
-                    {
-                        dfdx(element[i] * spatial_dimensions, element[j] * spatial_dimensions)
-                            += (weightTimesDetJ * N[i] * N[j]) * sourceDerivative;
-                    }
-                }
-            }
-        });
+    SOFA_UNUSED(matrix);
 }
 
 template <class DataTypes, class ElementType>
