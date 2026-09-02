@@ -220,9 +220,10 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
 }
 
 template <class DataTypes, class ElementType>
-template <class TFunctor>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
-    const VecCoord_t<DataTypes>& x, TFunctor&& functor) const
+    const VecCoord_t<DataTypes>& x,
+    const std::function<void(const Element&, const ShapeFunctions&, Real,
+        const Coord_t<DataTypes>&, const Deriv_t<DataTypes>&)>& callable) const
 {
     const auto restPositionsAccessor = this->mstate->readRestPositions();
     const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
@@ -254,7 +255,7 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
             const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
             const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
 
-            functor(element, N, static_cast<Real>(weight * detJ), restPosition, displacement);
+            callable(element, N, static_cast<Real>(weight * detJ), restPosition, displacement);
         }
     }
 }
@@ -288,8 +289,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
         VecDeriv_t<DataTypes>& nonConstantForce = forceAccessor.wref();
 
         forEachIntegrationPoint(positionAccessor.ref(),
-            [this, &nonConstantForce](const auto& element, const auto& N, const Real weightTimesDetJ,
-                       const auto& restPosition, const auto& displacement)
+            [this, &nonConstantForce](const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
+                       const Coord_t<DataTypes>& restPosition, const Deriv_t<DataTypes>& displacement)
             {
                 for (const auto& source : l_nonConstantSources)
                 {
@@ -325,8 +326,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
 
     forEachIntegrationPoint(positionsAccessor.ref(),
         [this, &forceDerivAccessor, &positionDerivAccessor, kFactor](
-            const auto& element, const auto& N, const Real weightTimesDetJ,
-            const auto& restPosition, const auto& displacement)
+            const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
+            const Coord_t<DataTypes>& restPosition, const Deriv_t<DataTypes>& displacement)
         {
             std::array<Deriv_t<DataTypes>, NumberOfNodesInElement> elementPositionDeriv;
             for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -362,8 +363,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa:
     const auto positionsAccessor = this->mstate->readPositions();
 
     forEachIntegrationPoint(positionsAccessor.ref(),
-        [this, &dfdx](const auto& element, const auto& N, const Real weightTimesDetJ,
-                      const auto& restPosition, const auto& displacement)
+        [this, &dfdx](const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
+                      const Coord_t<DataTypes>& restPosition, const Deriv_t<DataTypes>& displacement)
         {
             for (const auto& source : l_nonConstantSources)
             {

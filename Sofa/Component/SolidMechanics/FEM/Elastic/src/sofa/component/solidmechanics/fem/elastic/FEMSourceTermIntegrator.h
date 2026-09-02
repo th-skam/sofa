@@ -30,6 +30,8 @@
 #include <sofa/fem/FiniteElement.h>
 #include <sofa/linearalgebra/CompressedRowSparseMatrixMechanical.h>
 
+#include <functional>
+
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_FEM_SOURCE_TERM_INTEGRATOR_CPP)
 #include <sofa/fem/FiniteElement[all].h>
 #endif
@@ -71,6 +73,8 @@ protected:
 
     using ElementMatrix = sofa::type::Mat<NumberOfNodesInElement, NumberOfNodesInElement, sofa::Real_t<DataTypes>>;
     using GlobalMatrix = sofa::linearalgebra::CompressedRowSparseMatrixMechanical<sofa::Real_t<DataTypes>>;
+    using Element = typename FiniteElement::TopologyElement;
+    using ShapeFunctions = sofa::type::Vec<NumberOfNodesInElement, Real>;
 
 public:
 
@@ -191,11 +195,10 @@ protected:
      *
      * All sources share the gather, shape functions, Jacobian and displacement interpolation in
      * addForce, addDForce and buildStiffnessMatrix.
-     *
-     * The functor is called as functor(element, N, weightTimesDetJ, restPosition, displacement).
      */
-    template <class TFunctor>
-    void forEachIntegrationPoint(const sofa::VecCoord_t<DataTypes>& x, TFunctor&& functor) const;
+    void forEachIntegrationPoint(const sofa::VecCoord_t<DataTypes>& x,
+        const std::function<void(const Element&, const ShapeFunctions&, Real,
+            const sofa::Coord_t<DataTypes>&, const sofa::Deriv_t<DataTypes>&)>& callable) const;
 
     /**
      * @brief Computes the geometry-only matrix of each element.
