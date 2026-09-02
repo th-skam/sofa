@@ -204,9 +204,11 @@ protected:
      * All sources share the gather, shape functions, Jacobian and displacement interpolation in
      * addForce, addDForce and buildStiffnessMatrix.
      */
-    void forEachIntegrationPoint(const VecCoord& x,
-        const std::function<void(const Element&, const ShapeFunctions&, Real,
-            const Coord&, const Deriv&, const Jacobian&)>& callable) const;
+    void forEachIntegrationPoint(const VecCoord& x, bool needsCurrentJacobian,
+        const std::function<void(const Element&, const ShapeFunctions&,
+            const Coord&, const Deriv&,
+            Real restWeightTimesDetJ, const Jacobian& restJacobian,
+            Real currentWeightTimesDetJ, const Jacobian& currentJacobian)>& callable) const;
 
     /**
      * @brief Computes the geometry-only matrix of each element and caches m_referenceJacobian of the

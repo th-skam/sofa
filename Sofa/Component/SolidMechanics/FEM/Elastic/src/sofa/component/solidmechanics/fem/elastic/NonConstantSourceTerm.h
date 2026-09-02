@@ -76,6 +76,12 @@ public:
     using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
 
     /**
+     * @brief Whether evaluate() receives the rest-configuration Jacobian (cached) or updates it
+     * False by default.
+     */
+    sofa::Data<bool> d_useRestShape;
+
+    /**
      * @brief Source density at one integration point. Defaults to zero.
      */
     virtual Deriv evaluate(const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian) const
@@ -98,7 +104,12 @@ public:
 
 protected:
 
-    NonConstantSourceTerm() : sofa::core::BaseNodalProperty<Deriv>(Deriv{}) {}
+    NonConstantSourceTerm()
+        : sofa::core::BaseNodalProperty<Deriv>(Deriv{})
+        , d_useRestShape(initData(&d_useRestShape, false, "useRestShape",
+              "Whether evaluate() receives the rest-configuration Jacobian instead of the "
+              "current-configuration one."))
+    {}
 };
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_NON_CONSTANT_SOURCE_TERM_CPP)

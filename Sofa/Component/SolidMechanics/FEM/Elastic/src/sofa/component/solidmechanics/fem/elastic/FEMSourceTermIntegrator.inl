@@ -25,6 +25,8 @@
 #include <sofa/core/MechanicalParams.h>
 #include <sofa/core/behavior/BaseLocalForceFieldMatrix.h>
 
+#include <algorithm>
+
 namespace sofa::component::solidmechanics::fem::elastic
 {
 
@@ -228,9 +230,10 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::assembleConstantForce()
 
 template <class DataTypes, class ElementType>
 void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
-    const VecCoord& x,
-    const std::function<void(const Element&, const ShapeFunctions&, Real,
-        const Coord&, const Deriv&, const Jacobian&)>& callable) const
+    const VecCoord& x, bool needsCurrentJacobian,
+    const std::function<void(const Element&, const ShapeFunctions&,
+        const Coord&, const Deriv&,
+        Real, const Jacobian&, Real, const Jacobian&)>& callable) const
 {
     const auto restPositionsAccessor = this->mstate->readRestPositions();
     const auto& elements = FiniteElement::getElementSequence(*this->l_topology);
@@ -258,13 +261,24 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
         {
             const auto N = FiniteElement::shapeFunctions(quadraturePoint);
 
-            const auto& jacobian = m_referenceJacobian[elementId * quadraturePointsPerElement + quadraturePointIndex];
-            const auto detJ = sofa::type::absGeneralizedDeterminant(jacobian);
+            const auto& restJacobian = m_referenceJacobian[elementId * quadraturePointsPerElement + quadraturePointIndex];
+            const auto restWeightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(restJacobian));
+
+            Jacobian currentJacobian{};
+            Real currentWeightTimesDetJ{};
+            if (needsCurrentJacobian)
+            {
+                const auto dN_dq_ref = FiniteElement::gradientShapeFunctions(quadraturePoint);
+                currentJacobian = FiniteElement::Helper::jacobianFromReferenceToPhysical(
+                    elementNodesCoordinates, dN_dq_ref);
+                currentWeightTimesDetJ = static_cast<Real>(weight * sofa::type::absGeneralizedDeterminant(currentJacobian));
+            }
 
             const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
             const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
 
-            callable(element, N, static_cast<Real>(weight * detJ), restPosition, displacement, jacobian);
+            callable(element, N, restPosition, displacement,
+                restWeightTimesDetJ, restJacobian, currentWeightTimesDetJ, currentJacobian);
 
             ++quadraturePointIndex;
         }
@@ -299,12 +313,20 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addForce(const sofa::core:
         const sofa::helper::ReadAccessor positionAccessor = sofa::helper::getReadAccessor(x);
         VecDeriv& nonConstantForce = forceAccessor.wref();
 
-        forEachIntegrationPoint(positionAccessor.ref(),
-            [this, &nonConstantForce](const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
-                       const Coord& restPosition, const Deriv& displacement, const Jacobian& jacobian)
+        const bool needsCurrentJacobian = std::any_of(l_nonConstantSources.begin(), l_nonConstantSources.end(),
+            [](const auto& source) { return !source->d_useRestShape.getValue(); });
+
+        forEachIntegrationPoint(positionAccessor.ref(), needsCurrentJacobian,
+            [this, &nonConstantForce](const Element& element, const ShapeFunctions& N,
+                       const Coord& restPosition, const Deriv& displacement,
+                       const Real restWeightTimesDetJ, const Jacobian& restJacobian,
+                       const Real currentWeightTimesDetJ, const Jacobian& currentJacobian)
             {
                 for (const auto& source : l_nonConstantSources)
                 {
+                    const bool useRestShape = source->d_useRestShape.getValue();
+                    const auto& jacobian = useRestShape ? restJacobian : currentJacobian;
+                    const auto weightTimesDetJ = useRestShape ? restWeightTimesDetJ : currentWeightTimesDetJ;
                     const auto sourceDensity = source->evaluate(restPosition, displacement, jacobian);
 
                     for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -335,10 +357,11 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
     const sofa::helper::ReadAccessor positionDerivAccessor = sofa::helper::getReadAccessor(dx);
     const auto positionsAccessor = this->mstate->readPositions();
 
-    forEachIntegrationPoint(positionsAccessor.ref(),
+    forEachIntegrationPoint(positionsAccessor.ref(), false,
         [this, &forceDerivAccessor, &positionDerivAccessor, kFactor](
-            const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
-            const Coord& restPosition, const Deriv& displacement, const Jacobian&)
+            const Element& element, const ShapeFunctions& N,
+            const Coord& restPosition, const Deriv& displacement,
+            const Real weightTimesDetJ, const Jacobian&, Real, const Jacobian&)
         {
             std::array<Deriv, NumberOfNodesInElement> elementPositionDeriv;
             for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
@@ -373,9 +396,10 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::buildStiffnessMatrix(sofa:
 
     const auto positionsAccessor = this->mstate->readPositions();
 
-    forEachIntegrationPoint(positionsAccessor.ref(),
-        [this, &dfdx](const Element& element, const ShapeFunctions& N, const Real weightTimesDetJ,
-                      const Coord& restPosition, const Deriv& displacement, const Jacobian&)
+    forEachIntegrationPoint(positionsAccessor.ref(), false,
+        [this, &dfdx](const Element& element, const ShapeFunctions& N,
+                      const Coord& restPosition, const Deriv& displacement,
+                      const Real weightTimesDetJ, const Jacobian&, Real, const Jacobian&)
         {
             for (const auto& source : l_nonConstantSources)
             {
