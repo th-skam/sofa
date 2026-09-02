@@ -9,6 +9,9 @@
     <RequiredPlugin pluginName="Sofa.Component.Constraint.Projective"/>
     <RequiredPlugin pluginName="Sofa.Component.Engine.Select"/>
     <RequiredPlugin pluginName="Sofa.Component.LinearSolver.Direct"/>
+    <RequiredPlugin pluginName="Sofa.Component.LinearSolver.Iterative"/>
+    <RequiredPlugin pluginName="Sofa.Component.LinearSolver.Preconditioner"/>
+    <RequiredPlugin pluginName="Sofa.Component.LinearSystem"/>
     <RequiredPlugin pluginName="Sofa.Component.Mass"/>
     <RequiredPlugin pluginName="Sofa.Component.MechanicalLoad"/>
     <RequiredPlugin pluginName="Sofa.Component.ODESolver.Backward"/>
@@ -22,13 +25,20 @@
     <DefaultAnimationLoop/>
     <VisualStyle displayFlags="showBehaviorModels showVisualModels showWireframe"/>
 
-    <RegularGridTopology name="grid" n="9 3 3" min="0 0 0" max="2 0.4 0.4"/>
+    <RegularGridTopology name="grid" n="27 9 9" min="0 0 0" max="2 0.4 0.4"/>
 
     <!-- Pressure applied via SurfacePressureForceField; red -->
+    <!--
     <Node name="PressureBeam">
         <NewtonRaphsonSolver name="newton" maxNbIterationsNewton="1" absoluteResidualStoppingThreshold="1e-8"/>
-        <StaticSolver newtonSolver="@newton"/>
-        <SparseLDLSolver name="linear_solver" template="CompressedRowSparseMatrixd"/>
+        <StaticSolver newtonSolver="@newton" linearSolver="@linear_solver"/>
+
+        <MatrixLinearSystem name="precondSystem" template="CompressedRowSparseMatrixd"/>
+        <SSORPreconditioner name="precond" linearSystem="@precondSystem"/>
+
+        <PreconditionedMatrixFreeSystem name="solverSystem" preconditionerSystem="@precondSystem"/>
+        <PCGLinearSolver name="linear_solver" iterations="1000" tolerance="1e-15"
+                         linearSystem="@solverSystem" preconditioner="@precond"/>
 
         <MechanicalObject name="dofs" template="Vec3" src="@../grid" showObject="true" drawMode="1" showObjectScale="0.01" showColor="1 0 0 0.9"/>
         <BoxROI name="boundary" template="Vec3" box="-0.05 -0.05 -0.05  0.05 0.45 0.45"/>
@@ -52,16 +62,28 @@
 
             <BoxROI name="topFace" template="Vec3" box="-0.05 0.35 -0.05  2.05 0.45 0.45" drawBoxes="1"/>
 
-            <SurfacePressureForceField name="pressure" template="Vec3" topology="@Triangle_topo"
-                           triangleIndices="@topFace.triangleIndices" pressure="1000"/>
+            <Node name="TopFace">
+                <TriangleSetTopologyContainer name="TopFace_topo" triangles="@../topFace.trianglesInROI"/>
+                <TriangleSetTopologyModifier name="TopFaceModifier"/>
+                <TriangleSetGeometryAlgorithms name="TopFaceGeomAlgo" template="Vec3"/>
+
+                <SurfacePressureForceField name="pressure" template="Vec3" topology="@TopFace_topo" pressure="1000"/>
+            </Node>
         </Node>
     </Node>
+    -->
 
     <!-- Pressure applied via FEMSourceTermIntegrator; white -->
     <Node name="SourceTermBeam">
         <NewtonRaphsonSolver name="newton" maxNbIterationsNewton="1" absoluteResidualStoppingThreshold="1e-8"/>
-        <StaticSolver newtonSolver="@newton"/>
-        <SparseLDLSolver name="linear_solver" template="CompressedRowSparseMatrixd"/>
+        <StaticSolver newtonSolver="@newton" linearSolver="@linear_solver"/>
+
+        <MatrixLinearSystem name="precondSystem" template="CompressedRowSparseMatrixd"/>
+        <SSORPreconditioner name="precond" linearSystem="@precondSystem"/>
+
+        <PreconditionedMatrixFreeSystem name="solverSystem" preconditionerSystem="@precondSystem"/>
+        <PCGLinearSolver name="linear_solver" iterations="1000" tolerance="1e-15"
+                         linearSystem="@solverSystem" preconditioner="@precond"/>
 
         <MechanicalObject name="dofs" template="Vec3" src="@../grid" showObject="true" drawMode="1" showObjectScale="0.01" showColor="1 1 1 1"/>
         <BoxROI name="boundary" template="Vec3" box="-0.05 -0.05 -0.05  0.05 0.45 0.45"/>
