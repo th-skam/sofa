@@ -236,6 +236,12 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
         const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement> elementNodesCoordinates =
             extractNodesVectorFromGlobalVector(element, x);
 
+        std::array<sofa::Deriv_t<DataTypes>, NumberOfNodesInElement> elementNodesDisplacement;
+        for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
+        {
+            elementNodesDisplacement[i] = elementNodesCoordinates[i] - elementNodesRestCoordinates[i];
+        }
+
         for (const auto& [quadraturePoint, weight] : quadratureRule)
         {
             const auto N = FiniteElement::shapeFunctions(quadraturePoint);
@@ -245,14 +251,8 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::forEachIntegrationPoint(
                 elementNodesRestCoordinates, dN_dq_ref);
             const auto detJ = sofa::type::absGeneralizedDeterminant(jacobian);
 
-            // TODO: Manual loop now. Helper::evaluateValueInElement is not generic for N > 1.
-            sofa::Coord_t<DataTypes> restPosition {};
-            sofa::Deriv_t<DataTypes> displacement {};
-            for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
-            {
-                restPosition += elementNodesRestCoordinates[i] * N[i];
-                displacement += (elementNodesCoordinates[i] - elementNodesRestCoordinates[i]) * N[i];
-            }
+            const auto restPosition = FiniteElement::Helper::evaluateValueInElement(elementNodesRestCoordinates, N);
+            const auto displacement = FiniteElement::Helper::evaluateValueInElement(elementNodesDisplacement, N);
 
             functor(element, N, static_cast<Real>(weight * detJ), restPosition, displacement);
         }
@@ -328,11 +328,12 @@ void FEMSourceTermIntegrator<DataTypes, ElementType>::addDForce(const sofa::core
             const auto& element, const auto& N, const Real weightTimesDetJ,
             const auto& restPosition, const auto& displacement)
         {
-            sofa::Deriv_t<DataTypes> positionDeriv {};
+            std::array<sofa::Deriv_t<DataTypes>, NumberOfNodesInElement> elementPositionDeriv;
             for (sofa::Size i = 0; i < NumberOfNodesInElement; ++i)
             {
-                positionDeriv += positionDerivAccessor[element[i]] * N[i];
+                elementPositionDeriv[i] = positionDerivAccessor[element[i]];
             }
+            const auto positionDeriv = FiniteElement::Helper::evaluateValueInElement(elementPositionDeriv, N);
 
             for (const auto& source : l_nonConstantSources)
             {
