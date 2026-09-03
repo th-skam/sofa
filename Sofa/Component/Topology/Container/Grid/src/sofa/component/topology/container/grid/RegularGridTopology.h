@@ -165,8 +165,19 @@ protected:
     /// Inverse value of dx, dy and dz
     SReal inv_dx2, inv_dy2, inv_dz2;
 
-    /// Cached Vinokur delta per axis, since solving it is a Newton iteration.
-    type::Vec3 m_gradingDelta;
+    /// One graded axis: converts between a uniform index fraction and a physical position
+    /// fraction, using the Vinokur (1983) stretching function for target end-spacings s0, s1.
+    class GradedAxis
+    {
+    public:
+        void setEndSpacings(SReal s0, SReal s1);
+        SReal toPosition(SReal xi) const; ///< index fraction [0,1] -> position fraction [0,1]
+        SReal toIndex(SReal t) const;     ///< position fraction [0,1] -> index fraction [0,1]
+    private:
+        SReal m_s0 = 1_sreal, m_s1 = 1_sreal, m_delta = 0_sreal;
+    };
+
+    GradedAxis m_grading[3];
 
     /// Fractional cell index per axis for point p; uniform fast path if grading is [1,1,1].
     void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;

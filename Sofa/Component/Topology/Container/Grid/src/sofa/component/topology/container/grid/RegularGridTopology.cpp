@@ -117,6 +117,23 @@ static SReal vinokurXi(SReal t, SReal s0, SReal s1, SReal delta)
 
 } // anonymous namespace
 
+void RegularGridTopology::GradedAxis::setEndSpacings(SReal s0, SReal s1)
+{
+    m_s0 = s0;
+    m_s1 = s1;
+    m_delta = computeVinokurDelta(s0, s1);
+}
+
+SReal RegularGridTopology::GradedAxis::toPosition(SReal xi) const
+{
+    return vinokurT(xi, m_s0, m_s1, m_delta);
+}
+
+SReal RegularGridTopology::GradedAxis::toIndex(SReal t) const
+{
+    return vinokurXi(t, m_s0, m_s1, m_delta);
+}
+
 /// To avoid duplicating the code in the different variants of the constructor
 /// this object is using the delegating constructor feature of c++ x11.
 /// The following constructor is "chained" by the other constructors to
@@ -196,7 +213,7 @@ void RegularGridTopology::init()
                 << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
             s1[i] = 1_sreal;
         }
-        m_gradingDelta[i] = computeVinokurDelta(s0[i], s1[i]);
+        m_grading[i].setEndSpacings(s0[i], s1[i]);
     }
 
     if (d_cellWidth.getValue())
@@ -272,13 +289,11 @@ void RegularGridTopology::setPos(SReal xmin, SReal xmax, SReal ymin, SReal ymax,
 
 sofa::type::Vec3 RegularGridTopology::getPointInGrid(int i, int j, int k) const
 {
-    const auto& s0 = d_gradingRatioStart.getValue();
-    const auto& s1 = d_gradingRatioEnd.getValue();
     const auto& n = d_n.getValue();
     // Scale each uniform step vector by its axis's graded fraction instead of the raw index.
-    const SReal fx = n[0] > 1 ? vinokurT(SReal(i) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1) : 0;
-    const SReal fy = n[1] > 1 ? vinokurT(SReal(j) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1) : 0;
-    const SReal fz = n[2] > 1 ? vinokurT(SReal(k) / (n[2] - 1), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1) : 0;
+    const SReal fx = n[0] > 1 ? m_grading[0].toPosition(SReal(i) / (n[0] - 1)) * (n[0] - 1) : 0;
+    const SReal fy = n[1] > 1 ? m_grading[1].toPosition(SReal(j) / (n[1] - 1)) * (n[1] - 1) : 0;
+    const SReal fz = n[2] > 1 ? m_grading[2].toPosition(SReal(k) / (n[2] - 1)) * (n[2] - 1) : 0;
     return d_p0.getValue() + dx * fx + dy * fy + dz * fz;
 }
 
@@ -286,13 +301,11 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 {
     const type::Vec3 p0 = d_p0.getValue();
     const type::Vec3i n = d_n.getValue();
-    const type::Vec3& s0 = d_gradingRatioStart.getValue();
-    const type::Vec3& s1 = d_gradingRatioEnd.getValue();
     const type::Vec3 p = position - p0;
 
-    const int ix = n[0] > 1 ? int(std::round(vinokurXi(p[0] / (dx[0] * (n[0] - 1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1))) : 0;
-    const int iy = n[1] > 1 ? int(std::round(vinokurXi(p[1] / (dy[1] * (n[1] - 1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1))) : 0;
-    const int iz = n[2] > 1 ? int(std::round(vinokurXi(p[2] / (dz[2] * (n[2] - 1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1))) : 0;
+    const int ix = n[0] > 1 ? int(std::round(m_grading[0].toIndex(p[0] / (dx[0] * (n[0] - 1))) * (n[0] - 1))) : 0;
+    const int iy = n[1] > 1 ? int(std::round(m_grading[1].toIndex(p[1] / (dy[1] * (n[1] - 1))) * (n[1] - 1))) : 0;
+    const int iz = n[2] > 1 ? int(std::round(m_grading[2].toIndex(p[2] / (dz[2] * (n[2] - 1))) * (n[2] - 1))) : 0;
 
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
@@ -306,13 +319,11 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 {
     const type::Vec3 p0 = d_p0.getValue();
     const type::Vec3i n = d_n.getValue();
-    const type::Vec3& s0 = d_gradingRatioStart.getValue();
-    const type::Vec3& s1 = d_gradingRatioEnd.getValue();
     const type::Vec3 p = position - p0;
 
-    const int ix = n[0] > 1 ? int(std::round(vinokurXi(p[0] / (dx[0] * (n[0] - 1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1))) : 0;
-    const int iy = n[1] > 1 ? int(std::round(vinokurXi(p[1] / (dy[1] * (n[1] - 1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1))) : 0;
-    const int iz = n[2] > 1 ? int(std::round(vinokurXi(p[2] / (dz[2] * (n[2] - 1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1))) : 0;
+    const int ix = n[0] > 1 ? int(std::round(m_grading[0].toIndex(p[0] / (dx[0] * (n[0] - 1))) * (n[0] - 1))) : 0;
+    const int iy = n[1] > 1 ? int(std::round(m_grading[1].toIndex(p[1] / (dy[1] * (n[1] - 1))) * (n[1] - 1))) : 0;
+    const int iz = n[2] > 1 ? int(std::round(m_grading[2].toIndex(p[2] / (dz[2] * (n[2] - 1))) * (n[2] - 1))) : 0;
 
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
@@ -323,9 +334,9 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 
     // epsilon is relative to the first-cell size (dx[0]), applied uniformly to all axes.
     const auto node_position = type::Vec3(
-        n[0] > 1 ? vinokurT(SReal(ix) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * dx[0] * (n[0] - 1) : 0,
-        n[1] > 1 ? vinokurT(SReal(iy) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * dy[1] * (n[1] - 1) : 0,
-        n[2] > 1 ? vinokurT(SReal(iz) / (n[2] - 1), s0[2], s1[2], m_gradingDelta[2]) * dz[2] * (n[2] - 1) : 0);
+        n[0] > 1 ? m_grading[0].toPosition(SReal(ix) / (n[0] - 1)) * dx[0] * (n[0] - 1) : 0,
+        n[1] > 1 ? m_grading[1].toPosition(SReal(iy) / (n[1] - 1)) * dy[1] * (n[1] - 1) : 0,
+        n[2] > 1 ? m_grading[2].toPosition(SReal(iz) / (n[2] - 1)) * dz[2] * (n[2] - 1) : 0);
     const auto m = epsilon * dx[0];
     const auto e = p - node_position;
 
@@ -351,9 +362,9 @@ void RegularGridTopology::computeCellIndex(const type::Vec3& p, SReal& x, SReal&
         const SReal dx_len = std::sqrt(dx*dx);
         const SReal dy_len = std::sqrt(dy*dy);
         const SReal dz_len = std::sqrt(dz*dz);
-        x = n[0] > 1 ? vinokurXi((p*dx/dx_len) / (dx_len*(n[0]-1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0]-1) : 0;
-        y = n[1] > 1 ? vinokurXi((p*dy/dy_len) / (dy_len*(n[1]-1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1]-1) : 0;
-        z = n[2] > 1 ? vinokurXi((p*dz/dz_len) / (dz_len*(n[2]-1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2]-1) : 0;
+        x = n[0] > 1 ? m_grading[0].toIndex((p*dx/dx_len) / (dx_len*(n[0]-1))) * (n[0]-1) : 0;
+        y = n[1] > 1 ? m_grading[1].toIndex((p*dy/dy_len) / (dy_len*(n[1]-1))) * (n[1]-1) : 0;
+        z = n[2] > 1 ? m_grading[2].toIndex((p*dz/dz_len) / (dz_len*(n[2]-1))) * (n[2]-1) : 0;
     }
 }
 
