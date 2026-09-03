@@ -152,9 +152,13 @@ public:
     /// Data if > 0 : dimension of each cell in the created grid
     Data< SReal > d_cellWidth;
 
-    /// Per-axis geometric grading ratio [rx, ry, rz].
-    /// r > 1: points dense at start; r < 1: points dense at end; r = 1: uniform (default).
-    Data< type::Vec3 > d_gradingRatio;
+    /// Per-axis target point density at the grid's start (i=0), relative to uniform spacing.
+    /// 1 = uniform (default). > 1 = denser (finer cells) at the start. < 1 = coarser at the start.
+    Data< type::Vec3 > d_gradingRatioStart;
+
+    /// Per-axis target point density at the grid's end (i=n-1), relative to uniform spacing.
+    /// 1 = uniform (default). > 1 = denser (finer cells) at the end. < 1 = coarser at the end.
+    Data< type::Vec3 > d_gradingRatioEnd;
 
 protected:
     /// Distance between points in the grid. Must be perpendicular to each other
@@ -163,13 +167,20 @@ protected:
     /// Inverse value of dx, dy and dz
     SReal inv_dx2, inv_dy2, inv_dz2;
 
+    /// Vinokur stretching parameter (delta), one per axis, solved from d_gradingRatioStart/End.
+    /// Cached so findPoint/findCube don't re-solve a transcendental equation on every query.
+    type::Vec3 m_gradingDelta;
+
     /// Compute fractional cell indices (x, y, z) for a point p relative to the grid origin.
-    /// Applies graded inversion when d_gradingRatio != [1,1,1], uniform formula otherwise.
+    /// Applies graded inversion unless d_gradingRatioStart == d_gradingRatioEnd == [1,1,1].
     void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;
 
-    /// Clamp any non-positive component of d_gradingRatio to 1 (uniform), since r <= 0 is
-    /// undefined for the geometric grading formula (log(r) in particular).
+    /// Clamp any non-positive component of d_gradingRatioStart/End to 1 (uniform), since a
+    /// zero or negative target spacing is undefined for the Vinokur grading formula.
     void checkGradingRatio();
+
+    /// Recompute m_gradingDelta from d_gradingRatioStart/End. Call whenever they change.
+    void updateGradingDelta();
 };
 
 } //namespace sofa::component::topology::container::grid

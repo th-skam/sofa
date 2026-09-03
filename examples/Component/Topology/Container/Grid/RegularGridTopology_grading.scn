@@ -1,25 +1,29 @@
 <?xml version="1.0"?>
 <!--
-  Visual inspection scene for RegularGridTopology graded meshing.
+  Visual inspection scene for RegularGridTopology graded meshing (Vinokur stretching).
 
-  Six grids are shown at rest (no simulation) so the spacing distribution
-  can be compared directly.  All grids share the same resolution (n=9 in
-  each active axis, giving 8 cells per direction) and the same bounding box
-  size (10×10 units).
+  Grids are shown at rest (no simulation) so the spacing distribution can be
+  compared directly. All grids share the same resolution (n=9 in each active
+  axis, giving 8 cells per direction) and the same bounding box size (10x10
+  units).
+
+  gradingRatioStart / gradingRatioEnd are per-axis target point densities,
+  relative to uniform spacing: 1 = uniform (default), > 1 = denser (finer
+  cells) at that end, < 1 = coarser at that end.
 
   Top row — 3D hexahedral grids (nz=9):
-    Left   : uniform baseline                   gradingRatio="1 1 1"  (grey)
-    Centre : x-axis graded, r=3                 gradingRatio="3 1 1"  (blue)
-             Points accumulate at x=min; cells grow toward x=max.
-    Right  : x-axis graded, r=1/3               gradingRatio="0.33 1 1" (green)
-             Reverse of the above; cells grow toward x=min.
+    Left   : uniform baseline                    (grey)
+    Centre : x-axis dense at start (xmin)         gradingRatioStart="3 1 1" (blue)
+    Right  : x-axis dense at end (xmax)           gradingRatioEnd="3 1 1"   (green)
 
   Bottom row — 2D quad grids (nz=1):
-    Left   : uniform baseline                   gradingRatio="1 1 1"  (grey)
-    Centre : both axes graded the same way      gradingRatio="3 3 1"  (orange)
-             Points accumulate at (xmin, ymin); coarsens toward (xmax, ymax).
-    Right  : axes graded in opposite directions gradingRatio="3 0.33 1" (red)
-             Fine in x at start, fine in y at end — creates a corner refinement.
+    1st : uniform baseline                        (grey)
+    2nd : dense at (xmin, ymin) corner             gradingRatioStart="3 3 1" (orange)
+    3rd : dense at opposite corners                gradingRatioStart="3 1 1"
+          (xmin, ymax)                             gradingRatioEnd="1 3 1"   (red)
+    4th : two-sided — dense at all four walls,     gradingRatioStart="4 4 1"
+          coarse in the middle. Refines close to    gradingRatioEnd="4 4 1"  (purple)
+          walls without refining the whole grid.
 
   Each node contains only:
     RegularGridTopology   — defines resolution, extent, and grading
@@ -42,12 +46,11 @@
          TOP ROW: 3D hexahedral grids
          ================================================================ -->
 
-    <!-- Grid 1: uniform reference (r=1, default) -->
+    <!-- Grid 1: uniform reference -->
     <Node name="3D_Uniform">
         <RegularGridTopology name="grid"
             n="9 9 9"
-            min="0 0 0" max="10 10 10"
-            gradingRatio="1 1 1"/>
+            min="0 0 0" max="10 10 10"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.6 0.6 0.6 1.0"
@@ -56,12 +59,12 @@
         </Node>
     </Node>
 
-    <!-- Grid 2: x-axis graded r=3 — points dense at x=min -->
-    <Node name="3D_X_graded_r3">
+    <!-- Grid 2: x-axis dense at start (x=min) -->
+    <Node name="3D_X_denseAtStart">
         <RegularGridTopology name="grid"
             n="9 9 9"
             min="13 0 0" max="23 10 10"
-            gradingRatio="3 1 1"/>
+            gradingRatioStart="3 1 1"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.2 0.4 0.9 1.0"
@@ -70,12 +73,12 @@
         </Node>
     </Node>
 
-    <!-- Grid 3: x-axis graded r=1/3 — points dense at x=max -->
-    <Node name="3D_X_graded_r0.33">
+    <!-- Grid 3: x-axis dense at end (x=max) -->
+    <Node name="3D_X_denseAtEnd">
         <RegularGridTopology name="grid"
             n="9 9 9"
             min="26 0 0" max="36 10 10"
-            gradingRatio="0.33 1 1"/>
+            gradingRatioEnd="3 1 1"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.2 0.8 0.3 1.0"
@@ -88,12 +91,11 @@
          BOTTOM ROW: 2D quad grids (nz=1)
          ================================================================ -->
 
-    <!-- Grid 4: uniform reference (r=1, default) -->
+    <!-- Grid 4: uniform reference -->
     <Node name="2D_Uniform">
         <RegularGridTopology name="grid"
             n="9 9 1"
-            min="0 -13 0" max="10 -3 0"
-            gradingRatio="1 1 1"/>
+            min="0 -13 0" max="10 -3 0"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.6 0.6 0.6 1.0"
@@ -102,12 +104,12 @@
         </Node>
     </Node>
 
-    <!-- Grid 5: both axes graded r=3 — corner refinement at (xmin, ymin) -->
-    <Node name="2D_XY_graded_r3">
+    <!-- Grid 5: dense at (xmin, ymin) corner -->
+    <Node name="2D_denseAtCorner">
         <RegularGridTopology name="grid"
             n="9 9 1"
             min="13 -13 0" max="23 -3 0"
-            gradingRatio="3 3 1"/>
+            gradingRatioStart="3 3 1"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.9 0.5 0.1 1.0"
@@ -116,15 +118,31 @@
         </Node>
     </Node>
 
-    <!-- Grid 6: x graded r=3, y graded r=1/3 — refinement at opposite corners -->
-    <Node name="2D_X3_Yr0.33">
+    <!-- Grid 6: dense at opposite corners (xmin,ymax) -->
+    <Node name="2D_denseAtOppositeCorners">
         <RegularGridTopology name="grid"
             n="9 9 1"
             min="26 -13 0" max="36 -3 0"
-            gradingRatio="3 0.33 1"/>
+            gradingRatioStart="3 1 1"
+            gradingRatioEnd="1 3 1"/>
         <MechanicalObject template="Vec3" name="dofs"/>
         <Node name="Visu">
             <OglModel name="Visual" color="0.85 0.15 0.15 1.0"
+                edges="@../grid.edges"/>
+            <IdentityMapping input="@../dofs" output="@Visual"/>
+        </Node>
+    </Node>
+
+    <!-- Grid 7: two-sided — dense at all four walls, coarse in the middle -->
+    <Node name="2D_TwoSided_WallRefinement">
+        <RegularGridTopology name="grid"
+            n="9 9 1"
+            min="39 -13 0" max="49 -3 0"
+            gradingRatioStart="4 4 1"
+            gradingRatioEnd="4 4 1"/>
+        <MechanicalObject template="Vec3" name="dofs"/>
+        <Node name="Visu">
+            <OglModel name="Visual" color="0.55 0.25 0.85 1.0"
                 edges="@../grid.edges"/>
             <IdentityMapping input="@../dofs" output="@Visual"/>
         </Node>

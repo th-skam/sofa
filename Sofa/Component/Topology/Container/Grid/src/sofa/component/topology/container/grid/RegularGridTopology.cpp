@@ -23,6 +23,8 @@
 
 #include <sofa/core/ObjectFactory.h>
 
+#include <cmath>
+
 namespace sofa::component::topology::container::grid
 {
 
@@ -33,27 +35,87 @@ using type::vector;
 namespace
 {
 
-/// World-space position of grid point i out of n spanning total length L with geometric grading ratio r.
-/// Cell sizes form a geometric series: first cell = s, next = s*r, etc.
-/// r > 1: smallest cells at the start; r < 1: smallest cells at the end; r = 1: uniform.
-static SReal gradedCoord(int i, int n, SReal L, SReal r)
+/// Solve sinh(x)/x = B for x > 0, given B > 1, via Newton's method.
+static SReal solveSinhOverX(SReal B)
 {
-    if (n <= 1)
-        return 0;
-    if (std::abs(r - 1) < 1e-10)
-        return L * i / (n - 1);
-    return L * (std::pow(r, i) - 1) / (std::pow(r, n - 1) - 1);
+    SReal x = (B < 3) ? std::sqrt(SReal(6) * (B - 1)) : std::log(2 * B) + std::log(std::log(2 * B));
+    for (int it = 0; it < 50; ++it)
+    {
+        const SReal sh = std::sinh(x), ch = std::cosh(x);
+        const SReal step = (sh / x - B) / ((x * ch - sh) / (x * x));
+        x -= step;
+        if (std::abs(step) < 1e-12 * std::max(SReal(1), x))
+            break;
+    }
+    return x;
 }
 
-/// Inverse of gradedCoord: fractional cell index for a point at distance x from the axis origin.
-static SReal gradedIndex(SReal x, int n, SReal L, SReal r)
+/// Solve sin(x)/x = B for x in (0, pi), given 0 < B < 1, via Newton's method safeguarded by
+/// bisection (sin(x)/x is monotonically decreasing on that interval, so a bracket always exists).
+static SReal solveSinOverX(SReal B)
 {
-    if (n <= 1 || L <= 0)
+    SReal lo = 0, hi = SReal(M_PI);
+    SReal x = std::min(std::sqrt(SReal(6) * (1 - B)), hi - SReal(1e-6));
+    for (int it = 0; it < 100; ++it)
+    {
+        const SReal s = std::sin(x), c = std::cos(x);
+        const SReal f = s / x - B;
+        (f > 0 ? lo : hi) = x;
+        const SReal df = (x * c - s) / (x * x);
+        SReal xNext = (std::abs(df) > 1e-14) ? x - f / df : SReal(0.5) * (lo + hi);
+        if (xNext <= lo || xNext >= hi)
+            xNext = SReal(0.5) * (lo + hi);
+        if (std::abs(xNext - x) < 1e-12)
+        {
+            x = xNext;
+            break;
+        }
+        x = xNext;
+    }
+    return x;
+}
+
+/// Vinokur (1983) stretching parameter delta for target end-spacings s0, s1 (relative to
+/// uniform spacing). Solved once per axis and cached, since it requires a transcendental solve.
+static SReal computeVinokurDelta(SReal s0, SReal s1)
+{
+    const SReal B = std::sqrt(s0 * s1);
+    if (std::abs(B - 1) < 1e-10)
         return 0;
-    if (std::abs(r - 1) < 1e-10)
-        return x * (n - 1) / L;
-    const SReal rn1 = std::pow(r, n - 1);
-    return std::log1p(x * (rn1 - 1) / L) / std::log(r);
+    return (B > 1) ? solveSinhOverX(B) : solveSinOverX(B);
+}
+
+/// Vinokur two-sided stretching function: maps a uniform index fraction xi in [0,1] to the
+/// corresponding physical position fraction t in [0,1], for target end-spacings s0, s1 and
+/// the precomputed delta = computeVinokurDelta(s0, s1).
+static SReal vinokurT(SReal xi, SReal s0, SReal s1, SReal delta)
+{
+    const SReal B = std::sqrt(s0 * s1);
+    const SReal A = std::sqrt(s0 / s1);
+
+    SReal u;
+    if (std::abs(B - 1) < 1e-10)
+        u = xi * (1 + 2 * (B - 1) * (xi - SReal(0.5)) * (1 - xi));
+    else if (B > 1)
+        u = SReal(0.5) + std::tanh(delta * (xi - SReal(0.5))) / (2 * std::tanh(delta / 2));
+    else
+        u = SReal(0.5) + std::tan(delta * (xi - SReal(0.5))) / (2 * std::tan(delta / 2));
+
+    return u / (A + (1 - A) * u);
+}
+
+/// Inverse of vinokurT: physical position fraction t in [0,1] to uniform index fraction xi in [0,1].
+static SReal vinokurXi(SReal t, SReal s0, SReal s1, SReal delta)
+{
+    const SReal B = std::sqrt(s0 * s1);
+    const SReal A = std::sqrt(s0 / s1);
+    const SReal u = A * t / (1 - (1 - A) * t);
+
+    if (std::abs(B - 1) < 1e-10)
+        return u * (1 - 2 * (B - 1) * (u - SReal(0.5)) * (1 - u));
+    if (B > 1)
+        return SReal(0.5) + std::atanh((2 * u - 1) * std::tanh(delta / 2)) / delta;
+    return SReal(0.5) + std::atan((2 * u - 1) * std::tan(delta / 2)) / delta;
 }
 
 } // anonymous namespace
@@ -68,7 +130,8 @@ RegularGridTopology::RegularGridTopology(const type::Vec3i& dimXYZ)
     , d_max(initData(&d_max,type::Vec3(1_sreal, 1_sreal, 1_sreal),"max", "Max end of the diagonal"))
     , d_p0(initData(&d_p0,type::Vec3(0_sreal, 0_sreal, 0_sreal),"p0", "Offset all the grid points"))
     , d_cellWidth(initData(&d_cellWidth, 0_sreal, "cellWidth","if > 0 : dimension of each cell in the created grid. Otherwise, the cell size is computed based on min, max, and resolution n."))
-    , d_gradingRatio(initData(&d_gradingRatio, type::Vec3(1_sreal, 1_sreal, 1_sreal), "gradingRatio", "Per-axis geometric grading ratio [rx, ry, rz]. r > 1: points dense at start; r < 1: points dense at end; r = 1: uniform."))
+    , d_gradingRatioStart(initData(&d_gradingRatioStart, type::Vec3(1_sreal, 1_sreal, 1_sreal), "gradingRatioStart", "Per-axis target point density at the grid's start, relative to uniform spacing. 1 = uniform, > 1 = denser, < 1 = coarser."))
+    , d_gradingRatioEnd(initData(&d_gradingRatioEnd, type::Vec3(1_sreal, 1_sreal, 1_sreal), "gradingRatioEnd", "Per-axis target point density at the grid's end, relative to uniform spacing. 1 = uniform, > 1 = denser, < 1 = coarser."))
 {
 }
 
@@ -121,6 +184,7 @@ void RegularGridTopology::parse(core::objectmodel::BaseObjectDescription* arg)
 void RegularGridTopology::init()
 {
     checkGradingRatio();
+    updateGradingDelta();
 
     if (d_cellWidth.getValue())
     {
@@ -140,6 +204,7 @@ void RegularGridTopology::init()
 void RegularGridTopology::reinit()
 {
     checkGradingRatio();
+    updateGradingDelta();
 
     setPos(d_min.getValue()[0],d_max.getValue()[0],d_min.getValue()[1],d_max.getValue()[1],d_min.getValue()[2],d_max.getValue()[2]);
 
@@ -148,16 +213,27 @@ void RegularGridTopology::reinit()
 
 void RegularGridTopology::checkGradingRatio()
 {
-    auto r = sofa::helper::getWriteAccessor(d_gradingRatio);
-    for (sofa::Size i = 0; i < 3; ++i)
+    for (auto* data : { &d_gradingRatioStart, &d_gradingRatioEnd })
     {
-        if (r[i] <= 0)
+        auto r = sofa::helper::getWriteAccessor(*data);
+        for (sofa::Size i = 0; i < 3; ++i)
         {
-            msg_error() << "gradingRatio[" << i << "] = " << r[i]
-                << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
-            r[i] = 1_sreal;
+            if (r[i] <= 0)
+            {
+                msg_error() << data->getName() << "[" << i << "] = " << r[i]
+                    << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
+                r[i] = 1_sreal;
+            }
         }
     }
+}
+
+void RegularGridTopology::updateGradingDelta()
+{
+    const auto& s0 = d_gradingRatioStart.getValue();
+    const auto& s1 = d_gradingRatioEnd.getValue();
+    for (sofa::Size i = 0; i < 3; ++i)
+        m_gradingDelta[i] = computeVinokurDelta(s0[i], s1[i]);
 }
 
 void RegularGridTopology::changeGridResolutionPostProcess()
@@ -211,13 +287,14 @@ void RegularGridTopology::setPos(SReal xmin, SReal xmax, SReal ymin, SReal ymax,
 
 sofa::type::Vec3 RegularGridTopology::getPointInGrid(int i, int j, int k) const
 {
-    const auto& r = d_gradingRatio.getValue();
+    const auto& s0 = d_gradingRatioStart.getValue();
+    const auto& s1 = d_gradingRatioEnd.getValue();
     const auto& n = d_n.getValue();
-    // dx, dy, dz are the uniform step vectors; their component magnitude * (n-1) gives the full axis length.
-    // For each axis, scale the step direction by the graded fraction instead of the uniform integer index.
-    const SReal fx = n[0] > 1 ? gradedCoord(i, n[0], dx[0] * (n[0] - 1), r[0]) / dx[0] : 0;
-    const SReal fy = n[1] > 1 ? gradedCoord(j, n[1], dy[1] * (n[1] - 1), r[1]) / dy[1] : 0;
-    const SReal fz = n[2] > 1 ? gradedCoord(k, n[2], dz[2] * (n[2] - 1), r[2]) / dz[2] : 0;
+    // dx, dy, dz are the uniform step vectors; scale each by the graded fraction of its axis
+    // instead of the uniform integer index.
+    const SReal fx = n[0] > 1 ? vinokurT(SReal(i) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1) : 0;
+    const SReal fy = n[1] > 1 ? vinokurT(SReal(j) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1) : 0;
+    const SReal fz = n[2] > 1 ? vinokurT(SReal(k) / (n[2] - 1), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1) : 0;
     return d_p0.getValue() + dx * fx + dy * fy + dz * fz;
 }
 
@@ -225,12 +302,13 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 {
     const type::Vec3 p0 = d_p0.getValue();
     const type::Vec3i n = d_n.getValue();
-    const type::Vec3& r = d_gradingRatio.getValue();
+    const type::Vec3& s0 = d_gradingRatioStart.getValue();
+    const type::Vec3& s1 = d_gradingRatioEnd.getValue();
     const type::Vec3 p = position - p0;
 
-    const int ix = int(std::round(gradedIndex(p[0], n[0], dx[0] * (n[0] - 1), r[0])));
-    const int iy = int(std::round(gradedIndex(p[1], n[1], dy[1] * (n[1] - 1), r[1])));
-    const int iz = int(std::round(gradedIndex(p[2], n[2], dz[2] * (n[2] - 1), r[2])));
+    const int ix = n[0] > 1 ? int(std::round(vinokurXi(p[0] / (dx[0] * (n[0] - 1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1))) : 0;
+    const int iy = n[1] > 1 ? int(std::round(vinokurXi(p[1] / (dy[1] * (n[1] - 1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1))) : 0;
+    const int iz = n[2] > 1 ? int(std::round(vinokurXi(p[2] / (dz[2] * (n[2] - 1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1))) : 0;
 
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
@@ -244,12 +322,13 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 {
     const type::Vec3 p0 = d_p0.getValue();
     const type::Vec3i n = d_n.getValue();
-    const type::Vec3& r = d_gradingRatio.getValue();
+    const type::Vec3& s0 = d_gradingRatioStart.getValue();
+    const type::Vec3& s1 = d_gradingRatioEnd.getValue();
     const type::Vec3 p = position - p0;
 
-    const int ix = int(std::round(gradedIndex(p[0], n[0], dx[0] * (n[0] - 1), r[0])));
-    const int iy = int(std::round(gradedIndex(p[1], n[1], dy[1] * (n[1] - 1), r[1])));
-    const int iz = int(std::round(gradedIndex(p[2], n[2], dz[2] * (n[2] - 1), r[2])));
+    const int ix = n[0] > 1 ? int(std::round(vinokurXi(p[0] / (dx[0] * (n[0] - 1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1))) : 0;
+    const int iy = n[1] > 1 ? int(std::round(vinokurXi(p[1] / (dy[1] * (n[1] - 1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1))) : 0;
+    const int iz = n[2] > 1 ? int(std::round(vinokurXi(p[2] / (dz[2] * (n[2] - 1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1))) : 0;
 
     if (ix < 0 || iy < 0 || iz < 0)
         return InvalidID;
@@ -260,9 +339,9 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 
     // Check that the queried position lies within epsilon * (first-cell size) of the found node.
     const auto node_position = type::Vec3(
-        gradedCoord(ix, n[0], dx[0] * (n[0] - 1), r[0]),
-        gradedCoord(iy, n[1], dy[1] * (n[1] - 1), r[1]),
-        gradedCoord(iz, n[2], dz[2] * (n[2] - 1), r[2]));
+        n[0] > 1 ? vinokurT(SReal(ix) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * dx[0] * (n[0] - 1) : 0,
+        n[1] > 1 ? vinokurT(SReal(iy) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * dy[1] * (n[1] - 1) : 0,
+        n[2] > 1 ? vinokurT(SReal(iz) / (n[2] - 1), s0[2], s1[2], m_gradingDelta[2]) * dz[2] * (n[2] - 1) : 0);
     const auto m = epsilon * dx[0];
     const auto e = p - node_position;
 
@@ -273,11 +352,12 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 }
 
 /// Compute the fractional cell index along each axis for a point p relative to the grid origin.
-/// Uses the uniform formula when gradingRatio == [1,1,1] to avoid any overhead.
+/// Uses the uniform formula when both gradingRatio Datas are [1,1,1], to avoid any overhead.
 void RegularGridTopology::computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const
 {
-    const auto& r = d_gradingRatio.getValue();
-    if (std::abs(r[0]-1) < 1e-10 && std::abs(r[1]-1) < 1e-10 && std::abs(r[2]-1) < 1e-10)
+    const auto& s0 = d_gradingRatioStart.getValue();
+    const auto& s1 = d_gradingRatioEnd.getValue();
+    if (s0 == type::Vec3(1_sreal, 1_sreal, 1_sreal) && s1 == type::Vec3(1_sreal, 1_sreal, 1_sreal))
     {
         x = p*dx*inv_dx2;
         y = p*dy*inv_dy2;
@@ -289,9 +369,9 @@ void RegularGridTopology::computeCellIndex(const type::Vec3& p, SReal& x, SReal&
         const SReal dx_len = std::sqrt(dx*dx);
         const SReal dy_len = std::sqrt(dy*dy);
         const SReal dz_len = std::sqrt(dz*dz);
-        x = gradedIndex(p*dx/dx_len, n[0], dx_len*(n[0]-1), r[0]);
-        y = gradedIndex(p*dy/dy_len, n[1], dy_len*(n[1]-1), r[1]);
-        z = gradedIndex(p*dz/dz_len, n[2], dz_len*(n[2]-1), r[2]);
+        x = n[0] > 1 ? vinokurXi((p*dx/dx_len) / (dx_len*(n[0]-1)), s0[0], s1[0], m_gradingDelta[0]) * (n[0]-1) : 0;
+        y = n[1] > 1 ? vinokurXi((p*dy/dy_len) / (dy_len*(n[1]-1)), s0[1], s1[1], m_gradingDelta[1]) * (n[1]-1) : 0;
+        z = n[2] > 1 ? vinokurXi((p*dz/dz_len) / (dz_len*(n[2]-1)), s0[2], s1[2], m_gradingDelta[2]) * (n[2]-1) : 0;
     }
 }
 
