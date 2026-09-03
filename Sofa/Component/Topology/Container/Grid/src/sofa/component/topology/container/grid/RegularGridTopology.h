@@ -152,12 +152,10 @@ public:
     /// Data if > 0 : dimension of each cell in the created grid
     Data< SReal > d_cellWidth;
 
-    /// Per-axis target point density at the grid's start (i=0), relative to uniform spacing.
-    /// 1 = uniform (default). > 1 = denser (finer cells) at the start. < 1 = coarser at the start.
+    /// Per-axis target point density at the grid's start (i=0). 1 = uniform, > 1 = denser, < 1 = coarser.
     Data< type::Vec3 > d_gradingRatioStart;
 
-    /// Per-axis target point density at the grid's end (i=n-1), relative to uniform spacing.
-    /// 1 = uniform (default). > 1 = denser (finer cells) at the end. < 1 = coarser at the end.
+    /// Per-axis target point density at the grid's end (i=n-1). 1 = uniform, > 1 = denser, < 1 = coarser.
     Data< type::Vec3 > d_gradingRatioEnd;
 
 protected:
@@ -167,12 +165,10 @@ protected:
     /// Inverse value of dx, dy and dz
     SReal inv_dx2, inv_dy2, inv_dz2;
 
-    /// Vinokur stretching parameter (delta), one per axis, solved from d_gradingRatioStart/End.
-    /// Cached so findPoint/findCube don't re-solve a transcendental equation on every query.
+    /// Cached Vinokur delta per axis, since solving it is a Newton iteration.
     type::Vec3 m_gradingDelta;
 
-    /// Compute fractional cell indices (x, y, z) for a point p relative to the grid origin.
-    /// Applies graded inversion unless d_gradingRatioStart == d_gradingRatioEnd == [1,1,1].
+    /// Fractional cell index per axis for point p; uniform fast path if grading is [1,1,1].
     void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;
 };
 

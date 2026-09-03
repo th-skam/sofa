@@ -35,7 +35,7 @@ using type::vector;
 namespace
 {
 
-/// Solve sinh(x)/x = B for x > 0, given B > 1, via Newton's method.
+/// Newton's method for sinh(x)/x = B, x > 0, B > 1.
 static SReal solveSinhOverX(SReal B)
 {
     SReal x = (B < 3) ? std::sqrt(SReal(6) * (B - 1)) : std::log(2 * B) + std::log(std::log(2 * B));
@@ -50,8 +50,8 @@ static SReal solveSinhOverX(SReal B)
     return x;
 }
 
-/// Solve sin(x)/x = B for x in (0, pi), given 0 < B < 1, via Newton's method safeguarded by
-/// bisection (sin(x)/x is monotonically decreasing on that interval, so a bracket always exists).
+/// Newton's method for sin(x)/x = B, x in (0, pi), 0 < B < 1; bisection-safeguarded since
+/// sin(x)/x is monotonic there, so a bracket always exists.
 static SReal solveSinOverX(SReal B)
 {
     SReal lo = 0, hi = SReal(M_PI);
@@ -75,8 +75,7 @@ static SReal solveSinOverX(SReal B)
     return x;
 }
 
-/// Vinokur (1983) stretching parameter delta for target end-spacings s0, s1 (relative to
-/// uniform spacing). Solved once per axis and cached, since it requires a transcendental solve.
+/// Vinokur (1983) stretching parameter delta for end-spacing targets s0, s1.
 static SReal computeVinokurDelta(SReal s0, SReal s1)
 {
     const SReal B = std::sqrt(s0 * s1);
@@ -85,9 +84,7 @@ static SReal computeVinokurDelta(SReal s0, SReal s1)
     return (B > 1) ? solveSinhOverX(B) : solveSinOverX(B);
 }
 
-/// Vinokur two-sided stretching function: maps a uniform index fraction xi in [0,1] to the
-/// corresponding physical position fraction t in [0,1], for target end-spacings s0, s1 and
-/// the precomputed delta = computeVinokurDelta(s0, s1).
+/// Vinokur stretching: uniform index fraction xi in [0,1] -> physical position fraction t in [0,1].
 static SReal vinokurT(SReal xi, SReal s0, SReal s1, SReal delta)
 {
     const SReal B = std::sqrt(s0 * s1);
@@ -104,7 +101,7 @@ static SReal vinokurT(SReal xi, SReal s0, SReal s1, SReal delta)
     return u / (A + (1 - A) * u);
 }
 
-/// Inverse of vinokurT: physical position fraction t in [0,1] to uniform index fraction xi in [0,1].
+/// Inverse of vinokurT: t in [0,1] -> xi in [0,1].
 static SReal vinokurXi(SReal t, SReal s0, SReal s1, SReal delta)
 {
     const SReal B = std::sqrt(s0 * s1);
@@ -278,8 +275,7 @@ sofa::type::Vec3 RegularGridTopology::getPointInGrid(int i, int j, int k) const
     const auto& s0 = d_gradingRatioStart.getValue();
     const auto& s1 = d_gradingRatioEnd.getValue();
     const auto& n = d_n.getValue();
-    // dx, dy, dz are the uniform step vectors; scale each by the graded fraction of its axis
-    // instead of the uniform integer index.
+    // Scale each uniform step vector by its axis's graded fraction instead of the raw index.
     const SReal fx = n[0] > 1 ? vinokurT(SReal(i) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * (n[0] - 1) : 0;
     const SReal fy = n[1] > 1 ? vinokurT(SReal(j) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * (n[1] - 1) : 0;
     const SReal fz = n[2] > 1 ? vinokurT(SReal(k) / (n[2] - 1), s0[2], s1[2], m_gradingDelta[2]) * (n[2] - 1) : 0;
@@ -325,7 +321,7 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
 
     const auto node_index = getIndex(ix, iy, iz);
 
-    // Check that the queried position lies within epsilon * (first-cell size) of the found node.
+    // epsilon is relative to the first-cell size (dx[0]), applied uniformly to all axes.
     const auto node_position = type::Vec3(
         n[0] > 1 ? vinokurT(SReal(ix) / (n[0] - 1), s0[0], s1[0], m_gradingDelta[0]) * dx[0] * (n[0] - 1) : 0,
         n[1] > 1 ? vinokurT(SReal(iy) / (n[1] - 1), s0[1], s1[1], m_gradingDelta[1]) * dy[1] * (n[1] - 1) : 0,
@@ -339,8 +335,6 @@ RegularGridTopology::Index RegularGridTopology::findPoint(const type::Vec3& posi
     return node_index;
 }
 
-/// Compute the fractional cell index along each axis for a point p relative to the grid origin.
-/// Uses the uniform formula when both gradingRatio Datas are [1,1,1], to avoid any overhead.
 void RegularGridTopology::computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const
 {
     const auto& s0 = d_gradingRatioStart.getValue();
