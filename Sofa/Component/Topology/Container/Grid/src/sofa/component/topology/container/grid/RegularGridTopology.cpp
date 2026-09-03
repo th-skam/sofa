@@ -120,6 +120,8 @@ void RegularGridTopology::parse(core::objectmodel::BaseObjectDescription* arg)
 
 void RegularGridTopology::init()
 {
+    checkGradingRatio();
+
     if (d_cellWidth.getValue())
     {
         const SReal w = d_cellWidth.getValue();
@@ -137,9 +139,25 @@ void RegularGridTopology::init()
 
 void RegularGridTopology::reinit()
 {
+    checkGradingRatio();
+
     setPos(d_min.getValue()[0],d_max.getValue()[0],d_min.getValue()[1],d_max.getValue()[1],d_min.getValue()[2],d_max.getValue()[2]);
 
     Inherit1::reinit();
+}
+
+void RegularGridTopology::checkGradingRatio()
+{
+    auto r = sofa::helper::getWriteAccessor(d_gradingRatio);
+    for (sofa::Size i = 0; i < 3; ++i)
+    {
+        if (r[i] <= 0)
+        {
+            msg_error() << "gradingRatio[" << i << "] = " << r[i]
+                << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
+            r[i] = 1_sreal;
+        }
+    }
 }
 
 void RegularGridTopology::changeGridResolutionPostProcess()

@@ -166,6 +166,10 @@ protected:
     /// Compute fractional cell indices (x, y, z) for a point p relative to the grid origin.
     /// Applies graded inversion when d_gradingRatio != [1,1,1], uniform formula otherwise.
     void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;
+
+    /// Clamp any non-positive component of d_gradingRatio to 1 (uniform), since r <= 0 is
+    /// undefined for the geometric grading formula (log(r) in particular).
+    void checkGradingRatio();
 };
 
 } //namespace sofa::component::topology::container::grid
