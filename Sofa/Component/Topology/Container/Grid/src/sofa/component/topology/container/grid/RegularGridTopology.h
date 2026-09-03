@@ -174,13 +174,6 @@ protected:
     /// Compute fractional cell indices (x, y, z) for a point p relative to the grid origin.
     /// Applies graded inversion unless d_gradingRatioStart == d_gradingRatioEnd == [1,1,1].
     void computeCellIndex(const type::Vec3& p, SReal& x, SReal& y, SReal& z) const;
-
-    /// Clamp any non-positive component of d_gradingRatioStart/End to 1 (uniform), since a
-    /// zero or negative target spacing is undefined for the Vinokur grading formula.
-    void checkGradingRatio();
-
-    /// Recompute m_gradingDelta from d_gradingRatioStart/End. Call whenever they change.
-    void updateGradingDelta();
 };
 
 } //namespace sofa::component::topology::container::grid

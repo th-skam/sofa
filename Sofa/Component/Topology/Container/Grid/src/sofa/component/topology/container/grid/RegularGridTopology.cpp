@@ -183,8 +183,24 @@ void RegularGridTopology::parse(core::objectmodel::BaseObjectDescription* arg)
 
 void RegularGridTopology::init()
 {
-    checkGradingRatio();
-    updateGradingDelta();
+    auto s0 = sofa::helper::getWriteAccessor(d_gradingRatioStart);
+    auto s1 = sofa::helper::getWriteAccessor(d_gradingRatioEnd);
+    for (sofa::Size i = 0; i < 3; ++i)
+    {
+        if (s0[i] <= 0)
+        {
+            msg_error() << d_gradingRatioStart.getName() << "[" << i << "] = " << s0[i]
+                << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
+            s0[i] = 1_sreal;
+        }
+        if (s1[i] <= 0)
+        {
+            msg_error() << d_gradingRatioEnd.getName() << "[" << i << "] = " << s1[i]
+                << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
+            s1[i] = 1_sreal;
+        }
+        m_gradingDelta[i] = computeVinokurDelta(s0[i], s1[i]);
+    }
 
     if (d_cellWidth.getValue())
     {
@@ -203,37 +219,9 @@ void RegularGridTopology::init()
 
 void RegularGridTopology::reinit()
 {
-    checkGradingRatio();
-    updateGradingDelta();
-
     setPos(d_min.getValue()[0],d_max.getValue()[0],d_min.getValue()[1],d_max.getValue()[1],d_min.getValue()[2],d_max.getValue()[2]);
 
     Inherit1::reinit();
-}
-
-void RegularGridTopology::checkGradingRatio()
-{
-    for (auto* data : { &d_gradingRatioStart, &d_gradingRatioEnd })
-    {
-        auto r = sofa::helper::getWriteAccessor(*data);
-        for (sofa::Size i = 0; i < 3; ++i)
-        {
-            if (r[i] <= 0)
-            {
-                msg_error() << data->getName() << "[" << i << "] = " << r[i]
-                    << " is invalid (must be > 0). Falling back to 1 (uniform) for this axis.";
-                r[i] = 1_sreal;
-            }
-        }
-    }
-}
-
-void RegularGridTopology::updateGradingDelta()
-{
-    const auto& s0 = d_gradingRatioStart.getValue();
-    const auto& s1 = d_gradingRatioEnd.getValue();
-    for (sofa::Size i = 0; i < 3; ++i)
-        m_gradingDelta[i] = computeVinokurDelta(s0[i], s1[i]);
 }
 
 void RegularGridTopology::changeGridResolutionPostProcess()
