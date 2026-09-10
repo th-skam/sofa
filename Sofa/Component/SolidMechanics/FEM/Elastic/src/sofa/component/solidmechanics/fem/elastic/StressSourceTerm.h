@@ -90,6 +90,7 @@ public:
 
     using Deriv = sofa::Deriv_t<DataTypes>;
     using QuadratureContext = QuadratureContext<DataTypes, ElementType>;
+    using SourceDerivative = typename BaseSourceTerm<DataTypes, ElementType>::SourceDerivative;
     using NodalStress = ::sofa::component::solidmechanics::fem::elastic::NodalStress<DataTypes>;
 
     /**
@@ -107,6 +108,12 @@ public:
      * @brief The linked stress interpolated at the quadrature point, contracted with the normal.
      */
     Deriv evaluate(const QuadratureContext& context) const override;
+
+    /**
+     * @brief The stress tensor applied to the derivative of the area normal of the element.
+     */
+    SourceDerivative evaluateStiffness(const QuadratureContext& context,
+        sofa::Size node) const override;
 
 protected:
 
