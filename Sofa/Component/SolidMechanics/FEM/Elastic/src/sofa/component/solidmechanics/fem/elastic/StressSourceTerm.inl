@@ -64,4 +64,17 @@ sofa::Deriv_t<DataTypes> StressSourceTerm<DataTypes, ElementType>::evaluate(
     return this->interpolateProperty(*l_stress, context) * elementNormal(context.jacobian);
 }
 
+template <class DataTypes, class ElementType>
+auto StressSourceTerm<DataTypes, ElementType>::evaluateStiffness(
+    const QuadratureContext& context, sofa::Size node) const -> SourceDerivative
+{
+    if (!l_stress)
+    {
+        return SourceDerivative{};
+    }
+
+    return this->interpolateProperty(*l_stress, context)
+        * elementAreaNormalDerivative(context.jacobian, context.gradientShapeFunctions[node]);
+}
+
 }  // namespace sofa::component::solidmechanics::fem::elastic
