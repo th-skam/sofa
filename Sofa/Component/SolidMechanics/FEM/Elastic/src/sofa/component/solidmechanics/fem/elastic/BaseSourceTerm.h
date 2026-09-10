@@ -121,6 +121,61 @@ sofa::type::Vec<spatial_dimensions, Real> elementNormal(
 }
 
 /**
+ * @brief Derivative of the area normal of an element with respect to one of its node positions.
+ *
+ * The area normal is \f$ |\det J| \, n \f$: in 3D the cross product of the two columns of the
+ * jacobian, in 2D the tangent rotated by a quarter turn. Differentiating it with respect to the
+ * position of the node whose shape function is N gives
+ *
+ * \f[ [t_0]_\times \frac{\partial N}{\partial q_1} - [t_1]_\times \frac{\partial N}{\partial q_0}
+ *     \quad \text{in 3D,} \qquad R \, \frac{\partial N}{\partial q_0} \quad \text{in 2D,} \f]
+ *
+ * where \f$ t_i \f$ is the i-th column of the jacobian, \f$ [\,]_\times \f$ the cross-product
+ * matrix and R the quarter turn.
+ *
+ * Defined only where the element spans one dimension less than the space it lives in, as
+ * elementNormal is.
+ *
+ * @param jacobian dx/dq of the reference-to-physical mapping at the point of interest.
+ * @param gradientOfShapeFunction dN/dq of the node the derivative is taken with respect to.
+ */
+template <sofa::Size spatial_dimensions, sofa::Size TopologicalDimension, class Real>
+sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real> elementAreaNormalDerivative(
+    const sofa::type::Mat<spatial_dimensions, TopologicalDimension, Real>& jacobian,
+    const sofa::type::Vec<TopologicalDimension, Real>& gradientOfShapeFunction)
+{
+    static_assert(TopologicalDimension + 1 == spatial_dimensions,
+        "An area normal is only defined for an element of codimension 1.");
+
+    using Derivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
+
+    if constexpr (spatial_dimensions == 3)
+    {
+        const auto tangent0 = jacobian.col(0);
+        const auto tangent1 = jacobian.col(1);
+
+        const Derivative skewTangent0 {
+            {Real{0}, -tangent0[2], tangent0[1]},
+            {tangent0[2], Real{0}, -tangent0[0]},
+            {-tangent0[1], tangent0[0], Real{0}}};
+
+        const Derivative skewTangent1 {
+            {Real{0}, -tangent1[2], tangent1[1]},
+            {tangent1[2], Real{0}, -tangent1[0]},
+            {-tangent1[1], tangent1[0], Real{0}}};
+
+        return skewTangent0 * gradientOfShapeFunction[1]
+             - skewTangent1 * gradientOfShapeFunction[0];
+    }
+    else
+    {
+        const Derivative rotation {{Real{0}, Real{1}}, {Real{-1}, Real{0}}};
+
+        return rotation * gradientOfShapeFunction[0];
+    }
+}
+
+/**
  * @class BaseSourceTerm
  * @brief A source density whose value is determined by the geometry, not by the solution.
  *
@@ -139,15 +194,48 @@ public:
     SOFA_CLASS(SOFA_TEMPLATE2(BaseSourceTerm, DataTypes, ElementType),
         sofa::core::objectmodel::BaseComponent);
 
+    using Real = sofa::Real_t<DataTypes>;
     using Deriv = sofa::Deriv_t<DataTypes>;
     using QuadratureContext = QuadratureContext<DataTypes, ElementType>;
+
+    static constexpr sofa::Size spatial_dimensions = DataTypes::spatial_dimensions;
+
+    /// Derivative of a nodal force with respect to the position of one node of its element.
+    using SourceDerivative = sofa::type::Mat<spatial_dimensions, spatial_dimensions, Real>;
 
     /**
      * @brief Source density at one quadrature point, per unit physical measure.
      *
+     * The integrator weights it by \f$ w \, |\det J| \, N_a \f$.
+     *
      * @param context Geometry of the quadrature point.
      */
     virtual Deriv evaluate(const QuadratureContext& context) const = 0;
+
+    /**
+     * @brief Derivative of the measure-weighted density with respect to a node position.
+     *
+     * \f$ \partial (|\det J| \, r) / \partial x_b \f$, the measure included. The integrator weights
+     * this one by \f$ w \, N_a \f$ alone.
+     *
+     * A term that does not follow the configuration returns zero.
+     *
+     * @param context Geometry of the quadrature point.
+     * @param node Index in the element of the node the derivative is taken with respect to.
+     */
+    virtual SourceDerivative evaluateStiffness(const QuadratureContext& context,
+        sofa::Size node) const = 0;
+
+    /**
+     * @brief The Data this term's integrand reads, beyond the geometry it is handed.
+     *
+     * Access to this Data is enabled so that a callback on FEMSourceTermIntegrator may be enabled.
+     * They are tracked and the cached integral is rebuilt whenever one of them is written.
+     */
+    virtual sofa::type::vector<const sofa::core::objectmodel::BaseData*> integrandInputs() const
+    {
+        return {};
+    }
 
 protected:
 

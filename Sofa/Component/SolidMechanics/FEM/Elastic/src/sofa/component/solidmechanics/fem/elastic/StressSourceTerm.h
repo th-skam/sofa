@@ -26,6 +26,7 @@
 #include <sofa/core/BaseNodalProperty.h>
 #include <sofa/core/objectmodel/Link.h>
 #include <sofa/type/MatSym.h>
+#include <sofa/defaulttype/typeinfo/TypeInfo_MatSym.h>
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_STRESS_SOURCE_TERM_CPP)
 #include <sofa/defaulttype/VecTypes.h>
@@ -90,6 +91,7 @@ public:
 
     using Deriv = sofa::Deriv_t<DataTypes>;
     using QuadratureContext = QuadratureContext<DataTypes, ElementType>;
+    using SourceDerivative = typename BaseSourceTerm<DataTypes, ElementType>::SourceDerivative;
     using NodalStress = ::sofa::component::solidmechanics::fem::elastic::NodalStress<DataTypes>;
 
     /**
@@ -107,6 +109,17 @@ public:
      * @brief The linked stress interpolated at the quadrature point, contracted with the normal.
      */
     Deriv evaluate(const QuadratureContext& context) const override;
+
+    /**
+     * @brief The stress tensor applied to the derivative of the area normal of the element.
+     */
+    SourceDerivative evaluateStiffness(const QuadratureContext& context,
+        sofa::Size node) const override;
+
+    /**
+     * @brief The nodal values this term interpolates, for FEMSourceTermIntegrator to track.
+     */
+    sofa::type::vector<const sofa::core::objectmodel::BaseData*> integrandInputs() const override;
 
 protected:
 
