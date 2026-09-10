@@ -78,8 +78,10 @@ public:
     SOFA_CLASS(SOFA_TEMPLATE2(PressureSourceTerm, DataTypes, ElementType),
         SOFA_TEMPLATE2(BaseSourceTerm, DataTypes, ElementType));
 
+    using Real = sofa::Real_t<DataTypes>;
     using Deriv = sofa::Deriv_t<DataTypes>;
     using QuadratureContext = QuadratureContext<DataTypes, ElementType>;
+    using SourceDerivative = typename BaseSourceTerm<DataTypes, ElementType>::SourceDerivative;
     using NodalPressure = ::sofa::component::solidmechanics::fem::elastic::NodalPressure<DataTypes>;
 
     /**
@@ -97,6 +99,12 @@ public:
      * @brief The linked pressure interpolated at the quadrature point, times the unit normal.
      */
     Deriv evaluate(const QuadratureContext& context) const override;
+
+    /**
+     * @brief The pressure times the derivative of the area normal of the element.
+     */
+    SourceDerivative evaluateStiffness(const QuadratureContext& context,
+        sofa::Size node) const override;
 
 protected:
 
