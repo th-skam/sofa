@@ -4,6 +4,7 @@ project(Sofa.FEM_test)
 
 set(SOURCE_FILES
     FiniteElement_test.cpp
+    QuadratureRules_test.cpp
 )
 
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
