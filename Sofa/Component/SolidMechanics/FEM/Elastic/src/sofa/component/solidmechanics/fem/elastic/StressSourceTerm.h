@@ -26,6 +26,7 @@
 #include <sofa/core/BaseNodalProperty.h>
 #include <sofa/core/objectmodel/Link.h>
 #include <sofa/type/MatSym.h>
+#include <sofa/defaulttype/typeinfo/TypeInfo_MatSym.h>
 
 #if !defined(SOFA_COMPONENT_SOLIDMECHANICS_FEM_ELASTIC_STRESS_SOURCE_TERM_CPP)
 #include <sofa/defaulttype/VecTypes.h>
