@@ -77,4 +77,16 @@ auto StressSourceTerm<DataTypes, ElementType>::evaluateStiffness(
         * elementAreaNormalDerivative(context.jacobian, context.gradientShapeFunctions[node]);
 }
 
+template <class DataTypes, class ElementType>
+sofa::type::vector<const sofa::core::objectmodel::BaseData*>
+StressSourceTerm<DataTypes, ElementType>::integrandInputs() const
+{
+    if (!l_stress)
+    {
+        return {};
+    }
+
+    return {&l_stress->d_property};
+}
+
 }  // namespace sofa::component::solidmechanics::fem::elastic
