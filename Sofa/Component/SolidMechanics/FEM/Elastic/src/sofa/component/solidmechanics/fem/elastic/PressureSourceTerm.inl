@@ -77,4 +77,16 @@ auto PressureSourceTerm<DataTypes, ElementType>::evaluateStiffness(
         * this->interpolateProperty(*l_pressure, context);
 }
 
+template <class DataTypes, class ElementType>
+sofa::type::vector<const sofa::core::objectmodel::BaseData*>
+PressureSourceTerm<DataTypes, ElementType>::integrandInputs() const
+{
+    if (!l_pressure)
+    {
+        return {};
+    }
+
+    return {&l_pressure->d_property};
+}
+
 }  // namespace sofa::component::solidmechanics::fem::elastic

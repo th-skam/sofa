@@ -79,4 +79,16 @@ auto VectorSourceTerm<DataTypes, ElementType>::evaluateStiffness(
     return sofa::type::dyad(this->interpolateProperty(*l_sourceDensity, context), measureDerivative);
 }
 
+template <class DataTypes, class ElementType>
+sofa::type::vector<const sofa::core::objectmodel::BaseData*>
+VectorSourceTerm<DataTypes, ElementType>::integrandInputs() const
+{
+    if (!l_sourceDensity)
+    {
+        return {};
+    }
+
+    return {&l_sourceDensity->d_property};
+}
+
 }  // namespace sofa::component::solidmechanics::fem::elastic

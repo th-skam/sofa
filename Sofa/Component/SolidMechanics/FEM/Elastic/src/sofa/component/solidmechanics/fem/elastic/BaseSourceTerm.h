@@ -226,6 +226,17 @@ public:
     virtual SourceDerivative evaluateStiffness(const QuadratureContext& context,
         sofa::Size node) const = 0;
 
+    /**
+     * @brief The Data this term's integrand reads, beyond the geometry it is handed.
+     *
+     * Access to this Data is enabled so that a callback on FEMSourceTermIntegrator may be enabled.
+     * They are tracked and the cached integral is rebuilt whenever one of them is written.
+     */
+    virtual sofa::type::vector<const sofa::core::objectmodel::BaseData*> integrandInputs() const
+    {
+        return {};
+    }
+
 protected:
 
     BaseSourceTerm() = default;

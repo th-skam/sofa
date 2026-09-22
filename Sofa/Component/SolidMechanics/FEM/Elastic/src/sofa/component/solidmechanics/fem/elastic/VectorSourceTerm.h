@@ -108,6 +108,11 @@ public:
     SourceDerivative evaluateStiffness(const QuadratureContext& context,
         sofa::Size node) const override;
 
+    /**
+     * @brief The nodal values this term interpolates, for FEMSourceTermIntegrator to track.
+     */
+    sofa::type::vector<const sofa::core::objectmodel::BaseData*> integrandInputs() const override;
+
 protected:
 
     VectorSourceTerm();
