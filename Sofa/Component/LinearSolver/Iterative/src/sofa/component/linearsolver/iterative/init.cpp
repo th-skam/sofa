@@ -32,6 +32,7 @@ namespace sofa::component::linearsolver::iterative
 {
 
 extern void registerCGLinearSolver(sofa::core::ObjectFactory* factory);
+extern void registerEigenBiCGSTAB(sofa::core::ObjectFactory* factory);
 extern void registerMinResLinearSolver(sofa::core::ObjectFactory* factory);
 extern void registerPCGLinearSolver(sofa::core::ObjectFactory* factory);
 extern void registerPreconditionedMatrixFreeSystem(sofa::core::ObjectFactory* factory);
@@ -61,6 +62,7 @@ const char* getModuleVersion()
 void registerObjects(sofa::core::ObjectFactory* factory)
 {
     registerCGLinearSolver(factory);
+    registerEigenBiCGSTAB(factory);
     linearsystem::registerMatrixFreeSystemGraphScattered(factory);
     registerMinResLinearSolver(factory);
     registerPCGLinearSolver(factory);
