@@ -161,6 +161,10 @@ public:
 
     StressVoigtVector computeStress(const DeformationGradient& F, sofa::Size elementId) override;
 
+    /// Diagnostic only, and expensive: recomputes each element's force 6 times per degree of
+    /// freedom at every force evaluation. Off unless a scene turns it on.
+    sofa::Data<bool> d_checkElementTangent;
+
 protected:
 
     void beforeElementForce(const sofa::core::MechanicalParams* mparams,
@@ -181,6 +185,54 @@ protected:
 
     sofa::type::vector<RotationMatrix> m_rotations;
     sofa::type::vector<RotationMatrix> m_initialRotationsTransposed;
+
+    /// A rotation has one component per independent plane: an angle in 2D, a vector in 3D. Q and W
+    /// are the two matrices pairing it with a node's coordinates, so they are transposes in shape.
+    static constexpr sofa::Size RotationComponents =
+        NumberOfRotationComponents<trait::spatial_dimensions>;
+    using RotationVector = sofa::type::Vec<RotationComponents, sofa::Real_t<DataTypes>>;
+    using JacobianBlocks = std::array<
+        sofa::type::Mat<RotationComponents, trait::spatial_dimensions, sofa::Real_t<DataTypes>>,
+        trait::NumberOfNodesInElement>;
+    using CouplingBlocks = std::array<
+        sofa::type::Mat<trait::spatial_dimensions, RotationComponents, sofa::Real_t<DataTypes>>,
+        trait::NumberOfNodesInElement>;
+
+    /// Q = dtheta/dx per element, the derivative of the extracted rotation. Left empty where the
+    /// selected rotation method cannot be differentiated, which is what keeps the tangent of those
+    /// methods on the frozen-rotation path.
+    sofa::type::vector<JacobianBlocks> m_rotationJacobians;
+
+    /// W = K_l B_x - B_f per element: what dtheta multiplies in the tangent. Held alongside Q
+    /// because both are formed where the rotation is, and read where the tangent is applied.
+    sofa::type::vector<CouplingBlocks> m_rotationCouplings;
+
+    /// Whether the tangent carries the dR/dx term, which is the selected method's to say.
+    bool m_consistentTangent { false };
+
+    /// W for one element, from the local displacement and force the rotation was formed with.
+    void computeRotationCoupling(CouplingBlocks& coupling,
+        const typename trait::ElementHessian& stiffness,
+        const ElementDisplacement& localDisplacement,
+        const ElementGradient& localForce,
+        const std::array<sofa::Coord_t<DataTypes>, trait::NumberOfNodesInElement>& restNodes) const;
+
+    using ElementNodes = std::array<sofa::Coord_t<DataTypes>, trait::NumberOfNodesInElement>;
+
+    /// R K_l (R^T p - q) for one element, with the rotation, local displacement and local force it
+    /// was formed from. A function of the element's nodes alone, so a finite difference of it is a
+    /// finite difference of the element residual -- and of the same code the solve runs.
+    ElementGradient computeElementForce(const ElementNodes& nodes, const ElementNodes& restNodes,
+        const typename trait::ElementHessian& stiffness,
+        const RotationMatrix& initialRotationTransposed,
+        RotationMatrix& rotation,
+        ElementDisplacement& localDisplacement,
+        ElementGradient& localForce);
+
+    /// Diagnostic: the analytic element tangent against a central difference of the element force,
+    /// and how far from symmetric it is, over every element at the current configuration. Reports the
+    /// element where the error is worst.
+    void checkElementTangents(const sofa::VecCoord_t<DataTypes>& x);
 
     /// Local displacement of the element nodes in the element's own rotated frame. Flat vector.
     ElementDisplacement computeElementLocalDisplacement(

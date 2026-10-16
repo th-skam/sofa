@@ -21,11 +21,31 @@
 ******************************************************************************/
 #pragma once
 
+#include <sofa/component/solidmechanics/fem/elastic/impl/rotations/InfinitesimalRotation.h>
 #include <sofa/core/objectmodel/BaseObject.h>
+#include <array>
 #include <variant>
 
 namespace sofa::component::solidmechanics::fem::elastic
 {
+
+/**
+ * A rotation method opts into the consistent corotational tangent by declaring
+ * hasRotationJacobian and implementing computeRotationJacobian. The methods that do not are left on
+ * the frozen-rotation tangent, which is what they had before the term existed.
+ */
+template<class Method>
+consteval bool methodProvidesRotationJacobian()
+{
+    if constexpr (requires { Method::hasRotationJacobian; })
+    {
+        return Method::hasRotationJacobian;
+    }
+    else
+    {
+        return false;
+    }
+}
 
 /**
  * @class RotationMethodsContainer
@@ -88,6 +108,50 @@ public:
             [&](auto& rotationComputer)
             {
                 rotationComputer.computeRotation(rotationMatrix, initialRotationMatrix, nodesPosition, nodesRestPosition);
+            },
+            m_rotationComputer);
+    }
+
+    /// Q = dtheta/dx: one block per node, a rotation's components against a node's coordinates.
+    using RotationJacobianBlock = sofa::type::Mat<
+        NumberOfRotationComponents<DataTypes::spatial_dimensions>,
+        DataTypes::spatial_dimensions, sofa::Real_t<DataTypes>>;
+    using RotationJacobian = std::array<RotationJacobianBlock, NumberOfNodesInElement>;
+
+    /// Whether the selected method can differentiate the rotation it extracts.
+    bool providesRotationJacobian() const
+    {
+        return std::visit(
+            [](const auto& rotationComputer)
+            {
+                return methodProvidesRotationJacobian<std::decay_t<decltype(rotationComputer)>>();
+            },
+            m_rotationComputer);
+    }
+
+    /**
+     * Q for the selected method, at the configuration the rotation was extracted from.
+     *
+     * False where the method has no derivative or where it degenerated, in both cases leaving a
+     * zero jacobian -- which is exactly the frozen-rotation tangent.
+     */
+    bool computeRotationJacobian(RotationJacobian& jacobian, const RotationMatrix& rotationMatrix,
+        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement>& nodesPosition,
+        const std::array<sofa::Coord_t<DataTypes>, NumberOfNodesInElement>& nodesRestPosition)
+    {
+        return std::visit(
+            [&](auto& rotationComputer)
+            {
+                using Method = std::decay_t<decltype(rotationComputer)>;
+                if constexpr (methodProvidesRotationJacobian<Method>())
+                {
+                    return rotationComputer.computeRotationJacobian(
+                        jacobian, rotationMatrix, nodesPosition, nodesRestPosition);
+                }
+                else
+                {
+                    return false;
+                }
             },
             m_rotationComputer);
     }

@@ -32,7 +32,10 @@ namespace sofa::component::solidmechanics::fem::elastic
 
 template <class DataTypes, class ElementType>
 CorotationalFEMForceField<DataTypes, ElementType>::CorotationalFEMForceField()
-    : m_rotationMethods(this)
+    : d_checkElementTangent(initData(&d_checkElementTangent, false, "checkElementTangent",
+        "Diagnostic: report the analytic element tangent against a central difference of the element "
+        "force, and its asymmetry, at every force evaluation. Expensive."))
+    , m_rotationMethods(this)
 {
     this->addUpdateCallback("selectRotationMethod", {&this->m_rotationMethods.d_rotationMethod},
         [this](const sofa::core::DataTracker&)
@@ -76,6 +79,22 @@ void CorotationalFEMForceField<DataTypes, ElementType>::beforeElementForce(
 {
     const auto& elements = trait::FiniteElement::getElementSequence(*this->l_topology);
     m_rotations.resize(elements.size(), RotationMatrix::Identity());
+
+    // Q and W are formed only for a rotation method that can be differentiated, so the methods that
+    // cannot pay neither the memory nor the work and keep the frozen-rotation tangent they had.
+    m_consistentTangent = m_rotationMethods.providesRotationJacobian();
+    if (m_consistentTangent)
+    {
+        m_rotationJacobians.resize(elements.size());
+        m_rotationCouplings.resize(elements.size());
+    }
+
+    // Here rather than in the element loop because it has to be sequential to report a maximum, and
+    // because it depends on x alone -- so no cache can make it agree with a tangent that does not.
+    if (d_checkElementTangent.getValue())
+    {
+        checkElementTangents(x);
+    }
 }
 
 template <class DataTypes, class ElementType>
@@ -99,11 +118,35 @@ auto CorotationalFEMForceField<DataTypes, ElementType>::computeElementLocalDispl
 }
 
 template <class DataTypes, class ElementType>
+auto CorotationalFEMForceField<DataTypes, ElementType>::computeElementForce(
+    const ElementNodes& nodes, const ElementNodes& restNodes,
+    const typename trait::ElementHessian& stiffness,
+    const RotationMatrix& initialRotationTransposed,
+    RotationMatrix& rotation,
+    ElementDisplacement& localDisplacement,
+    ElementGradient& localForce) -> ElementGradient
+{
+    static constexpr auto DIM = trait::spatial_dimensions;
+
+    m_rotationMethods.computeRotation(rotation, initialRotationTransposed, nodes, restNodes);
+    localDisplacement = computeElementLocalDisplacement(nodes, restNodes, rotation);
+    localForce = stiffness * localDisplacement;
+
+    ElementGradient force = localForce;
+    sofa::type::Vec<DIM, sofa::Real_t<DataTypes>> nodeForce { sofa::type::NOINIT };
+    for (sofa::Size n = 0; n < trait::NumberOfNodesInElement; ++n)
+    {
+        force.getsub(n * DIM, nodeForce);
+        force.setsub(n * DIM, rotation * nodeForce);
+    }
+    return force;
+}
+
+template <class DataTypes, class ElementType>
 void CorotationalFEMForceField<DataTypes, ElementType>::computeElementsForces(
     const sofa::simulation::Range<std::size_t>& range, const sofa::core::MechanicalParams* mparams,
     sofa::type::vector<ElementGradient>& elementForces, const sofa::VecCoord_t<DataTypes>& nodePositions)
 {
-    static constexpr auto DIM = trait::spatial_dimensions;
     const auto& elements = trait::FiniteElement::getElementSequence(*this->l_topology);
     auto restPositionAccessor = this->mstate->readRestPositions();
     auto elementStiffness = sofa::helper::getReadAccessor(this->d_elementStiffness);
@@ -120,25 +163,191 @@ void CorotationalFEMForceField<DataTypes, ElementType>::computeElementsForces(
         auto& elementInitialRotationTransposed = this->m_initialRotationsTransposed[elementId];
         auto& elementRotation = this->m_rotations[elementId];
 
-        m_rotationMethods.computeRotation(elementRotation, elementInitialRotationTransposed, elementNodesCoordinates, restElementNodesCoordinates);
-
-        const auto displacement = computeElementLocalDisplacement(
-            elementNodesCoordinates, restElementNodesCoordinates, elementRotation);
-
         const auto& stiffnessMatrix = elementStiffness[elementId];
 
-        auto& elementForce = elementForces[elementId];
-        elementForce = stiffnessMatrix * displacement;
+        ElementDisplacement displacement { sofa::type::NOINIT };
+        ElementGradient localForce { sofa::type::NOINIT };
+        elementForces[elementId] = computeElementForce(
+            elementNodesCoordinates, restElementNodesCoordinates, stiffnessMatrix,
+            elementInitialRotationTransposed, elementRotation, displacement, localForce);
 
-        sofa::type::Vec<DIM, sofa::Real_t<DataTypes>> nodeForce { sofa::type::NOINIT };
-        for (sofa::Size n = 0; n < trait::NumberOfNodesInElement; ++n)
+        // The rotation's derivative is formed on the same schedule as the rotation itself, which is
+        // what the tangent needs: R is frozen for the whole linear solve that follows.
+        if (m_consistentTangent)
         {
-            elementForce.getsub(n * DIM, nodeForce);
-            elementForce.setsub(n * DIM, elementRotation * nodeForce);
+            const bool differentiated = m_rotationMethods.computeRotationJacobian(
+                m_rotationJacobians[elementId], elementRotation, elementNodesCoordinates,
+                restElementNodesCoordinates);
+            if (!differentiated)
+            {
+                msg_warning_once() << "An element rotation could not be differentiated, which takes "
+                    "an element deformed past degeneracy. Its tangent falls back to a frozen "
+                    "rotation.";
+            }
+
+            computeRotationCoupling(m_rotationCouplings[elementId], stiffnessMatrix, displacement,
+                                    localForce, restElementNodesCoordinates);
         }
     }
 }
 
+
+template <class DataTypes, class ElementType>
+void CorotationalFEMForceField<DataTypes, ElementType>::computeRotationCoupling(
+    CouplingBlocks& coupling,
+    const typename trait::ElementHessian& stiffness,
+    const ElementDisplacement& localDisplacement,
+    const ElementGradient& localForce,
+    const std::array<sofa::Coord_t<DataTypes>, trait::NumberOfNodesInElement>& restNodes) const
+{
+    static constexpr auto DIM = trait::spatial_dimensions;
+
+    // B_x, node by node. Since crossOperator(v)^T w == generator(w) v, the block that takes dtheta
+    // to the local displacement it induces at node a is -crossOperator(x_l,a)^T, with
+    // x_l,a = q_a + u_l,a the local position about the centroid.
+    const auto t0 = translation(restNodes);
+    CouplingBlocks localPosition;
+    sofa::Coord_t<DataTypes> nodeValue { sofa::type::NOINIT };
+    for (sofa::Size a = 0; a < trait::NumberOfNodesInElement; ++a)
+    {
+        localDisplacement.getsub(a * DIM, nodeValue);
+        localPosition[a] = -crossOperator(nodeValue + (restNodes[a] - t0)).transposed();
+    }
+
+    // W = K_l B_x - B_f, node by node.
+    RotationMatrix stiffnessBlock { sofa::type::NOINIT };
+    for (sofa::Size a = 0; a < trait::NumberOfNodesInElement; ++a)
+    {
+        coupling[a].clear();
+        for (sofa::Size c = 0; c < trait::NumberOfNodesInElement; ++c)
+        {
+            stiffness.getsub(a * DIM, c * DIM, stiffnessBlock);
+            coupling[a] += stiffnessBlock * localPosition[c];
+        }
+        localForce.getsub(a * DIM, nodeValue);
+        coupling[a] += crossOperator(nodeValue).transposed();
+    }
+}
+
+template <class DataTypes, class ElementType>
+void CorotationalFEMForceField<DataTypes, ElementType>::checkElementTangents(
+    const sofa::VecCoord_t<DataTypes>& x)
+{
+    static constexpr auto DIM = trait::spatial_dimensions;
+    static constexpr auto NDOF = trait::NumberOfDofsInElement;
+
+    using Real = sofa::Real_t<DataTypes>;
+    using ElementTangent = typename trait::ElementHessian;
+
+    const auto frobenius = [](const auto& m)
+    {
+        Real sum {};
+        for (sofa::Size i = 0; i < m.nbLines; ++i)
+            for (sofa::Size j = 0; j < m.nbCols; ++j)
+                sum += m(i, j) * m(i, j);
+        return std::sqrt(sum);
+    };
+
+    const auto& elements = trait::FiniteElement::getElementSequence(*this->l_topology);
+    auto restPositionAccessor = this->mstate->readRestPositions();
+    auto elementStiffness = sofa::helper::getReadAccessor(this->d_elementStiffness);
+    if (m_rotations.size() < elements.size() || elementStiffness.size() < elements.size())
+    {
+        return;
+    }
+
+    Real worstError {}, worstAsymmetry {}, worstStrain {};
+    std::size_t worstElement {};
+    sofa::Coord_t<DataTypes> worstCentroid;
+
+    for (std::size_t elementId = 0; elementId < elements.size(); ++elementId)
+    {
+        const auto& element = elements[elementId];
+        const ElementNodes nodes = extractNodesVectorFromGlobalVector(element, x);
+        const ElementNodes restNodes =
+            extractNodesVectorFromGlobalVector(element, restPositionAccessor.ref());
+        const auto& stiffness = elementStiffness[elementId];
+        const auto& initialRotationTransposed = m_initialRotationsTransposed[elementId];
+
+        RotationMatrix rotation { sofa::type::NOINIT };
+        ElementDisplacement displacement { sofa::type::NOINIT };
+        ElementGradient localForce { sofa::type::NOINIT };
+        computeElementForce(nodes, restNodes, stiffness, initialRotationTransposed, rotation,
+                            displacement, localForce);
+
+        JacobianBlocks jacobian;
+        CouplingBlocks coupling;
+        m_rotationMethods.computeRotationJacobian(jacobian, rotation, nodes, restNodes);
+        computeRotationCoupling(coupling, stiffness, displacement, localForce, restNodes);
+
+        // The analytic tangent, block by block: R K_l R^T + R W Q.
+        ElementTangent analytic { sofa::type::NOINIT };
+        RotationMatrix stiffnessBlock { sofa::type::NOINIT };
+        for (sofa::Size a = 0; a < trait::NumberOfNodesInElement; ++a)
+        {
+            for (sofa::Size b = 0; b < trait::NumberOfNodesInElement; ++b)
+            {
+                stiffness.getsub(a * DIM, b * DIM, stiffnessBlock);
+                analytic.setsub(a * DIM, b * DIM,
+                    (rotation * stiffnessBlock).multTransposed(rotation)
+                        + rotation * coupling[a] * jacobian[b]);
+            }
+        }
+
+        // A central difference of the same element force, column by degree of freedom. The step is
+        // relative to the element, so it means the same thing at every level of a sweep.
+        Real elementScale {};
+        const auto t0 = translation(restNodes);
+        for (const auto& restNode : restNodes)
+        {
+            elementScale = std::max(elementScale, (restNode - t0).norm());
+        }
+        const Real step = static_cast<Real>(1e-6) * elementScale;
+
+        ElementTangent difference { sofa::type::NOINIT };
+        for (sofa::Size j = 0; j < NDOF; ++j)
+        {
+            ElementNodes forward = nodes, backward = nodes;
+            forward[j / DIM][j % DIM] += step;
+            backward[j / DIM][j % DIM] -= step;
+
+            RotationMatrix perturbedRotation { sofa::type::NOINIT };
+            ElementDisplacement perturbedDisplacement { sofa::type::NOINIT };
+            ElementGradient perturbedLocalForce { sofa::type::NOINIT };
+            const auto forwardForce = computeElementForce(forward, restNodes, stiffness,
+                initialRotationTransposed, perturbedRotation, perturbedDisplacement,
+                perturbedLocalForce);
+            const auto backwardForce = computeElementForce(backward, restNodes, stiffness,
+                initialRotationTransposed, perturbedRotation, perturbedDisplacement,
+                perturbedLocalForce);
+
+            for (sofa::Size i = 0; i < NDOF; ++i)
+            {
+                difference(i, j) = (forwardForce[i] - backwardForce[i]) / (2 * step);
+            }
+        }
+
+        const auto scale = frobenius(difference);
+        if (scale > 0)
+        {
+            const Real error = frobenius(analytic - difference) / scale;
+            if (error > worstError)
+            {
+                worstError = error;
+                worstElement = elementId;
+                worstCentroid = t0;
+            }
+            worstAsymmetry = std::max(worstAsymmetry,
+                                      frobenius(analytic - analytic.transposed()) / scale);
+        }
+        worstStrain = std::max(worstStrain, displacement.norm() / elementScale);
+    }
+
+    msg_info() << "element tangent over " << elements.size() << " elements: relative error against a central "
+        "difference " << worstError << " at element " << worstElement << " (rest centroid "
+        << worstCentroid << "), relative asymmetry " << worstAsymmetry
+        << ", local strain ||u_l||/h " << worstStrain;
+}
 
 template <class DataTypes, class ElementType>
 void CorotationalFEMForceField<DataTypes, ElementType>::computeElementsForcesDeriv(
@@ -149,12 +358,27 @@ void CorotationalFEMForceField<DataTypes, ElementType>::computeElementsForcesDer
 {
     const auto& elements = trait::FiniteElement::getElementSequence(*this->l_topology);
     auto elementStiffness = sofa::helper::getReadAccessor(this->d_elementStiffness);
+    const bool consistent = m_consistentTangent
+        && m_rotationJacobians.size() >= elements.size()
+        && m_rotationCouplings.size() >= elements.size();
 
     for (std::size_t elementId = range.start; elementId < range.end; ++elementId)
     {
         const auto& element = elements[elementId];
 
         const auto& elementRotation = m_rotations[elementId];
+
+        // dtheta = Q dx: how far the element's own frame turns under dx, which the frozen tangent
+        // takes as zero. One vector per element, both terms below then being linear in it.
+        RotationVector dtheta;
+        if (consistent)
+        {
+            const auto& jacobian = m_rotationJacobians[elementId];
+            for (sofa::Size n = 0; n < trait::NumberOfNodesInElement; ++n)
+            {
+                dtheta += jacobian[n] * nodeDx[element[n]];
+            }
+        }
 
         sofa::type::Vec<trait::NumberOfDofsInElement, sofa::Real_t<DataTypes>> element_dx(sofa::type::NOINIT);
 
@@ -168,10 +392,15 @@ void CorotationalFEMForceField<DataTypes, ElementType>::computeElementsForcesDer
         auto& df = elementForcesDeriv[elementId];
         df = stiffnessMatrix * element_dx;
 
+        // df = R ( K_l R^T dx + W dtheta ), the second term being K_R dx.
         sofa::type::Vec<trait::spatial_dimensions, sofa::Real_t<DataTypes>> nodedForce { sofa::type::NOINIT };
         for (sofa::Size n = 0; n < trait::NumberOfNodesInElement; ++n)
         {
             df.getsub(n * trait::spatial_dimensions, nodedForce);
+            if (consistent)
+            {
+                nodedForce += m_rotationCouplings[elementId][n] * dtheta;
+            }
             df.setsub(n * trait::spatial_dimensions, elementRotation * nodedForce);
         }
     }
@@ -194,21 +423,31 @@ void CorotationalFEMForceField<DataTypes, ElementType>::buildStiffnessMatrix(
         return;
     }
 
-    auto elementStiffnessIt = elementStiffness.begin();
-    auto rotationMatrixIt = m_rotations.begin();
-    for (const auto& element : elements)
+    const bool consistent = m_consistentTangent
+        && m_rotationJacobians.size() >= elements.size()
+        && m_rotationCouplings.size() >= elements.size();
+
+    for (std::size_t elementId = 0; elementId < elements.size(); ++elementId)
     {
-        const auto& elementRotation = *rotationMatrixIt++;
+        const auto& element = elements[elementId];
+        const auto& elementRotation = m_rotations[elementId];
         const auto elementRotation_T = elementRotation.transposed();
 
-        const auto& stiffnessMatrix = *elementStiffnessIt++;
+        const auto& stiffnessMatrix = elementStiffness[elementId];
 
         for (sofa::Index n1 = 0; n1 < trait::NumberOfNodesInElement; ++n1)
         {
             for (sofa::Index n2 = 0; n2 < trait::NumberOfNodesInElement; ++n2)
             {
                 stiffnessMatrix.getsub(trait::spatial_dimensions * n1, trait::spatial_dimensions * n2, localMatrix);  // extract the submatrix corresponding to the coupling of nodes n1 and n2
-                dfdx(element[n1] * trait::spatial_dimensions, element[n2] * trait::spatial_dimensions) += -elementRotation * localMatrix * elementRotation_T;
+                // R K_l R^T, plus the dR/dx term K_R = R W Q, which is not symmetric.
+                auto block = elementRotation * localMatrix * elementRotation_T;
+                if (consistent)
+                {
+                    block += elementRotation * m_rotationCouplings[elementId][n1]
+                        * m_rotationJacobians[elementId][n2];
+                }
+                dfdx(element[n1] * trait::spatial_dimensions, element[n2] * trait::spatial_dimensions) += -block;
             }
         }
     }
