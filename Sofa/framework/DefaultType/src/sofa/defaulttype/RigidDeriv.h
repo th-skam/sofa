@@ -271,6 +271,12 @@ constexpr RigidDeriv<3,real> operator/(RigidDeriv<3, real> r,real2 a)
     return r;
 }
 
+template<sofa::Size N, typename T>
+constexpr T dot(const RigidDeriv<N,T>& a, const RigidDeriv<N,T>& b)
+{
+    return a * b;
+}
+
 template<sofa::Size N,typename T>
 constexpr typename RigidDeriv<N,T>::Pos& getLinear(RigidDeriv<N,T>& v)
 {
