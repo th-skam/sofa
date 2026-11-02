@@ -23,6 +23,8 @@
 #include <sofa/component/statecontainer/MechanicalObject.h>
 #include <sofa/component/solidmechanics/fem/elastic/BeamFEMForceField.h>
 #include <sofa/component/topology/container/dynamic/EdgeSetTopologyModifier.h>
+#include <sofa/component/topology/container/dynamic/EdgeSetTopologyContainer.h>
+#include <sofa/component/solidmechanics/testing/ForceFieldTestCreation.h>
 #include <sofa/core/topology/TopologyData.inl>
 
 #include <sofa/simpleapi/SimpleApi.h>
@@ -341,6 +343,102 @@ TEST_F(BeamFEMForceField_Rig3_test, checkForceField_values)
 TEST_F(BeamFEMForceField_Rig3_test, checkForceField_TopologyChanges)
 {
     this->checkTopologyChanges();
+}
+
+
+struct BeamFEMForceField_tangentStiffness_test
+    : public ForceField_test<component::solidmechanics::fem::elastic::BeamFEMForceField<Rigid3Types>>
+{
+    using Coord = Rigid3Types::Coord;
+    using Deriv = Rigid3Types::Deriv;
+    using VecCoord = Rigid3Types::VecCoord;
+    using VecDeriv = Rigid3Types::VecDeriv;
+    using Vec3 = type::Vec3;
+    using Quat = type::Quat<SReal>;
+
+    static constexpr SReal length = 1;
+    static constexpr SReal radius = 0.01;
+    static constexpr SReal youngModulus = 1e7;
+    static constexpr SReal poissonRatio = 0.3;
+    static constexpr SReal strain = 0.01;
+
+    BeamFEMForceField_tangentStiffness_test()
+    {
+        this->deltaRange = {1e6, 5e6};
+        this->errorMax = 1e5;
+        this->flags &= ~(TEST_POTENTIAL_ENERGY | TEST_ADD_K_TO_MATRIX);
+
+        auto topology = modeling::addNew<component::topology::container::dynamic::EdgeSetTopologyContainer>(this->node);
+        topology->findData("edges")->read("0 1");
+        this->force->d_radius.setValue(radius);
+        this->force->findData("youngModulus")->read(std::to_string(youngModulus));
+        this->force->findData("poissonRatio")->read(std::to_string(poissonRatio));
+    }
+
+    static SReal axialForce()
+    {
+        return youngModulus * M_PI * radius * radius * strain;
+    }
+
+    static VecCoord straightElement(const Vec3& axis, SReal elementLength)
+    {
+        Quat frame;
+        frame.setFromUnitVectors(Vec3(1, 0, 0), axis);
+        return {Coord(Vec3(0, 0, 0), frame), Coord(axis * elementLength, frame)};
+    }
+
+    void runCase(const VecCoord& rest, const VecCoord& x, const VecDeriv* expectedForce = nullptr)
+    {
+        const VecDeriv v(x.size(), Deriv());
+        this->setupState(rest, v);
+        sofa::simulation::node::initRoot(this->node.get());
+
+        VecDeriv ef;
+        if (expectedForce)
+            ef = *expectedForce;
+        else
+        {
+            core::MechanicalParams mparams;
+            this->setupState(x, v);
+            this->computeForce(&mparams);
+            sofa::testing::copyFromData(ef, this->dof->readForces());
+        }
+        this->run_test(x, v, ef, false);
+    }
+};
+
+TEST_F(BeamFEMForceField_tangentStiffness_test, rest)
+{
+    const VecCoord rest = straightElement(Vec3(1, 0, 0), length);
+    const VecDeriv f(2, Deriv());
+    runCase(rest, rest, &f);
+}
+
+TEST_F(BeamFEMForceField_tangentStiffness_test, stretched)
+{
+    const VecCoord rest = straightElement(Vec3(1, 0, 0), length);
+    const VecCoord x = straightElement(Vec3(1, 0, 0), length * (1 + strain));
+    const VecDeriv f = {Deriv(Vec3(axialForce(), 0, 0), Vec3()), Deriv(Vec3(-axialForce(), 0, 0), Vec3())};
+    runCase(rest, x, &f);
+}
+
+TEST_F(BeamFEMForceField_tangentStiffness_test, stretchedAngled)
+{
+    const Vec3 axis = Vec3(1, 2, -3).normalized();
+    const VecCoord rest = straightElement(axis, length);
+    const VecCoord x = straightElement(axis, length * (1 + strain));
+    const VecDeriv f = {Deriv(axis * axialForce(), Vec3()), Deriv(-axis * axialForce(), Vec3())};
+    runCase(rest, x, &f);
+}
+
+TEST_F(BeamFEMForceField_tangentStiffness_test, stretchedBentTwisted)
+{
+    const Vec3 axis = Vec3(1, 2, -3).normalized();
+    const VecCoord rest = straightElement(axis, length);
+    VecCoord x = straightElement(axis, length * (1 + strain));
+    x[1].getOrientation() = Quat(Vec3(0.3, -1, 0.5).normalized(), 0.1) * x[1].getOrientation();
+    x[1].getCenter() += Vec3(0.02, -0.01, 0.03);
+    runCase(rest, x);
 }
 
 } // namespace sofa
