@@ -421,7 +421,59 @@ void BeamFEMForceField<DataTypes>::accumulateForceLarge( VecDeriv& f, const VecC
     depl[9] = u[0]; depl[10]= u[1]; depl[11]= u[2];
 
     // this computation can be optimised: (we know that half of "depl" is null)
-    Displacement force = d_beamsData.getValue()[i]._k_loc * depl;
+    helper::WriteAccessor<Data<type::vector<BeamInfo> > > bd = d_beamsData;
+    const StiffnessMatrix& k_loc = bd[i]._k_loc;
+    Displacement force = k_loc * depl;
+
+    // Tangent stiffness, in the frame of node a, for increments [dxa, dθa, dxb, dθb] with world-frame
+    // rotations (as integrated by RigidCoord). The displacement depends on them through
+    //   d(P1P2) = dxb - dxa + P1P2 x dθa
+    //   d(u)    = Jl^-1(u) R(dQ0)^T (dθb - dθa)    (u: rotation vector of dQ0^-1 dQ)
+    // and the forces turn with the frame of node a.
+    {
+        const Real theta = u.norm();
+        // Coefficient of [u]x^2 in the inverse left Jacobian of SO(3); 1/12 is its limit at theta = 0
+        const Real c = theta < 1e-6
+            ? Real(1) / 12
+            : Real(1) / (theta * theta) - (1 + std::cos(theta)) / (2 * theta * std::sin(theta));
+        const type::Mat<3, 3, Real> ux = type::crossProductMatrix(u);
+        Transformation R0;
+        dQ0.toMatrix(R0);
+        const type::Mat<3, 3, Real> G = (type::Mat<3, 3, Real>::Identity() - ux * Real(0.5) + ux * ux * c) * R0.transposed();
+        const type::Mat<3, 3, Real> chord = type::crossProductMatrix(P1P2);
+
+        // d(depl[6..11]) = B * [dxa, dθa, dxb, dθb]
+        type::Mat<6, 12, Real> B;
+        for (int k = 0; k < 3; ++k)
+        {
+            B(k, k) = -1;
+            B(k, 6 + k) = 1;
+        }
+        for (int r = 0; r < 3; ++r)
+            for (int k = 0; k < 3; ++k)
+            {
+                B(r, 3 + k) = chord(r, k);
+                B(3 + r, 3 + k) = -G(r, k);
+                B(3 + r, 9 + k) = G(r, k);
+            }
+
+        StiffnessMatrix& kt = bd[i]._k_tangent;
+        for (int r = 0; r < 12; ++r)
+            for (int k = 0; k < 12; ++k)
+            {
+                Real sum = 0;
+                for (int j = 0; j < 6; ++j)
+                    sum += k_loc(r, 6 + j) * B(j, k);
+                kt(r, k) = sum;
+            }
+        for (int block = 0; block < 4; ++block)
+        {
+            const type::Mat<3, 3, Real> fx = type::crossProductMatrix(type::Vec<3, Real>(force[3 * block], force[3 * block + 1], force[3 * block + 2]));
+            for (int r = 0; r < 3; ++r)
+                for (int k = 0; k < 3; ++k)
+                    kt(3 * block + r, 3 + k) -= fx(r, k);
+        }
+    }
 
 
     // Apply lambda transpose (we use the rotation value of point a for the beam)
@@ -464,7 +516,7 @@ void BeamFEMForceField<DataTypes>::applyStiffnessLarge(VecDeriv& df, const VecDe
     local_depl[10] = u[1];
     local_depl[11] = u[2];
 
-    Displacement local_force = d_beamsData.getValue()[i]._k_loc * local_depl;
+    Displacement local_force = d_beamsData.getValue()[i]._k_tangent * local_depl;
 
     const Vec3 fa1 = q.rotate(type::Vec3d(local_force[0],local_force[1] ,local_force[2] ));
     const Vec3 fa2 = q.rotate(type::Vec3d(local_force[3],local_force[4] ,local_force[5] ));
@@ -494,7 +546,7 @@ void BeamFEMForceField<DataTypes>::addKToMatrix(sofa::linearalgebra::BaseMatrix 
             Transformation R,Rt;
             q.toMatrix(R);
             Rt.transpose(R);
-            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_loc;
+            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_tangent;
             StiffnessMatrix K;
             for (int x1=0; x1<12; x1+=3)
                 for (int y1=0; y1<12; y1+=3)
@@ -528,16 +580,18 @@ void BeamFEMForceField<DataTypes>::addKToMatrix(sofa::linearalgebra::BaseMatrix 
             Transformation R,Rt;
             q.toMatrix(R);
             Rt.transpose(R);
-            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_loc;
+            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_tangent;
             StiffnessMatrix K;
             const bool exploitSymmetry = d_useSymmetricAssembly.getValue();
 
             if (exploitSymmetry) {
+                // The tangent stiffness is not symmetric under load: assemble its symmetric part
+                const StiffnessMatrix K0sym = (K0 + K0.transposed()) * Real(0.5);
                 for (int x1=0; x1<12; x1+=3) {
                     for (int y1=x1; y1<12; y1+=3)
                     {
                         type::Mat<3,3,Real> m;
-                        K0.getsub(x1,y1, m);
+                        K0sym.getsub(x1,y1, m);
                         m = R*m*Rt;
 
                         for (int i=0; i<3; i++)
@@ -594,7 +648,7 @@ void BeamFEMForceField<DataTypes>::buildStiffnessMatrix(core::behavior::Stiffnes
             Transformation R,Rt;
             q.toMatrix(R);
             Rt.transpose(R);
-            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_loc;
+            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_tangent;
             StiffnessMatrix K;
             for (int x1=0; x1<12; x1+=3)
                 for (int y1=0; y1<12; y1+=3)
@@ -628,16 +682,18 @@ void BeamFEMForceField<DataTypes>::buildStiffnessMatrix(core::behavior::Stiffnes
             Transformation R,Rt;
             q.toMatrix(R);
             Rt.transpose(R);
-            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_loc;
+            const StiffnessMatrix& K0 = d_beamsData.getValue()[i]._k_tangent;
             StiffnessMatrix K;
             const bool exploitSymmetry = d_useSymmetricAssembly.getValue();
 
             if (exploitSymmetry) {
+                // The tangent stiffness is not symmetric under load: assemble its symmetric part
+                const StiffnessMatrix K0sym = (K0 + K0.transposed()) * Real(0.5);
                 for (int x1=0; x1<12; x1+=3) {
                     for (int y1=x1; y1<12; y1+=3)
                     {
                         type::Mat<3,3,Real> m;
-                        K0.getsub(x1,y1, m);
+                        K0sym.getsub(x1,y1, m);
                         m = R*m*Rt;
 
                         for (int i=0; i<3; i++)
