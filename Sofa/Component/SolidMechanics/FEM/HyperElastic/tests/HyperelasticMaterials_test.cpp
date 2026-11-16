@@ -91,6 +91,11 @@ protected:
             ogdenMaterial->m_alpha.setValue({1.3, 3.7, -1.8});
         }
 
+        if (auto* mooneyRivlinMaterial = dynamic_cast<MooneyRivlinMaterial<DataTypes>*>(material.get()))
+        {
+            mooneyRivlinMaterial->m_mu20.setValue(500.);
+        }
+
         material->init();
     }
 

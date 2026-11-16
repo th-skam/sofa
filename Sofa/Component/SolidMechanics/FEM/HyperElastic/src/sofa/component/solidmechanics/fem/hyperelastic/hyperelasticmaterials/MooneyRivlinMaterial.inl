@@ -33,6 +33,8 @@ MooneyRivlinMaterial<DataTypes>::MooneyRivlinMaterial()
                       "Material constant associated to the first invariant"))
     , m_mu01(initData(&m_mu01, static_cast<Real>(1e3), "mu01",
                       "Material constant associated to the second invariant"))
+    , m_mu20(initData(&m_mu20, static_cast<Real>(0), "mu20",
+                      "Material constant associated to the square of the first invariant"))
     , m_bulkModulus(initData(&m_bulkModulus, static_cast<Real>(1e2), "bulkModulus", "Bulk modulus"))
 {}
 
@@ -48,18 +50,21 @@ auto MooneyRivlinMaterial<DataTypes>::secondPiolaKirchhoffStress(Strain<DataType
     const auto S_isochoric = [this, J, &strain, &C_1, &C]()
     {
         static constexpr auto& I = Strain<DataTypes>::identity;
+        static constexpr Real dim = static_cast<Real>(spatial_dimensions);
         static constexpr Real dim_1 = static_cast<Real>(1) / static_cast<Real>(spatial_dimensions);
 
         const auto mu10 = m_mu10.getValue();
         const auto mu01 = m_mu01.getValue();
+        const auto mu20 = m_mu20.getValue();
 
         const auto invariant1 = strain.getInvariant1();
         const auto invariant2 = strain.getInvariant2();
 
         const auto S_mu_10 = pow(J, -static_cast<Real>(2) * dim_1) * (I - dim_1 * invariant1 * C_1);
         const auto S_mu_01 = pow(J, -static_cast<Real>(4) * dim_1) * (invariant1 * I - C - static_cast<Real>(2) * dim_1 * invariant2 * C_1);
+        const auto S_mu_20 = static_cast<Real>(2) * (pow(J, -static_cast<Real>(2) * dim_1) * invariant1 - dim) * S_mu_10;
 
-        return static_cast<Real>(2) * (mu10 * S_mu_10 + mu01 * S_mu_01);
+        return static_cast<Real>(2) * (mu10 * S_mu_10 + mu01 * S_mu_01 + mu20 * S_mu_20);
     }();
 
     const auto S_volumetric = [this, J, &C_1]()
@@ -74,6 +79,7 @@ auto MooneyRivlinMaterial<DataTypes>::secondPiolaKirchhoffStress(Strain<DataType
 template <class DataTypes>
 auto MooneyRivlinMaterial<DataTypes>::elasticityTensor(Strain<DataTypes>& strain) -> ElasticityTensor
 {
+    static constexpr Real dim = static_cast<Real>(spatial_dimensions);
     static constexpr Real dim_1 = static_cast<Real>(1) / static_cast<Real>(spatial_dimensions);
     const auto& C = strain.getRightCauchyGreenTensor();
     const auto J = strain.getDeterminantDeformationGradient();
@@ -86,6 +92,7 @@ auto MooneyRivlinMaterial<DataTypes>::elasticityTensor(Strain<DataTypes>& strain
 
     const auto mu01 = m_mu01.getValue();
     const auto mu10 = m_mu10.getValue();
+    const auto mu20 = m_mu20.getValue();
     const auto bulk = m_bulkModulus.getValue();
 
     auto delta = [](auto i, auto j){ return sofa::component::solidmechanics::fem::elastic::kroneckerDelta<Real>(i, j); };
@@ -119,7 +126,12 @@ auto MooneyRivlinMaterial<DataTypes>::elasticityTensor(Strain<DataTypes>& strain
                 + 4 * dim_1 * dim_1 * C_1(k, l) * C_1(i, j) * I2
             );
 
-            const Real dS_isochoric_dC = 2 * (mu10 * dS_mu_10dC + mu01 * dS_mu_01dC);
+            // the derivative of S_mu_20 with respect to C
+            // each term has both minor and major symmetries
+            const Real dS_mu_20dC = 2 * ((J_2dim * I1 - dim) * dS_mu_10dC
+                + J_2dim * (delta(i, j) - dim_1 * I1 * C_1(i, j)) * J_2dim * (delta(k, l) - dim_1 * I1 * C_1(k, l)));
+
+            const Real dS_isochoric_dC = 2 * (mu10 * dS_mu_10dC + mu01 * dS_mu_01dC + mu20 * dS_mu_20dC);
 
             // the derivative of S_volumetric with respect to C
             // this term has both minor and major symmetries
@@ -146,10 +158,12 @@ auto MooneyRivlinMaterial<DataTypes>::strainEnergyDensity(Strain<DataTypes>& str
 
     const auto mu10 = m_mu10.getValue();
     const auto mu01 = m_mu01.getValue();
+    const auto mu20 = m_mu20.getValue();
     const auto bulk = m_bulkModulus.getValue();
 
     const Real W_isochoric = mu10 * (pow(J, -2 * dim_1) * I1 - dim)
-        + mu01 * (pow(J, -4 * dim_1) * I2 - restInvariant2);
+        + mu01 * (pow(J, -4 * dim_1) * I2 - restInvariant2)
+        + mu20 * pow(pow(J, -2 * dim_1) * I1 - dim, static_cast<Real>(2));
 
     const Real W_volumetric = static_cast<Real>(0.5) * bulk * logJ * logJ;
 

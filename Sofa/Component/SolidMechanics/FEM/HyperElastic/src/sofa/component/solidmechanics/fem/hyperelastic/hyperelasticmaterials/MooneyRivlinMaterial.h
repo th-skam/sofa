@@ -51,6 +51,7 @@ private:
 public:
     sofa::Data<Real> m_mu10;
     sofa::Data<Real> m_mu01;
+    sofa::Data<Real> m_mu20;
     sofa::Data<Real> m_bulkModulus;
 
     StressTensor secondPiolaKirchhoffStress(Strain<DataTypes>& strain) override;
